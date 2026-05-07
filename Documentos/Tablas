@@ -1,0 +1,198 @@
+# CampoRemoto IA — Modelo de Datos
+
+> Documento de contexto para desarrollo  
+> Versión: 1.0  
+> Uso: insertar como contexto en Cursor / Antigravity al iniciar cada sesión de vibe coding
+
+---
+
+## Descripción general
+
+La base de datos está organizada en seis tablas principales. Las primeras cuatro (`usuarios`, `campos`, `lotes`, `cultivos`) gestionan la estructura del productor y sus parcelas. Las últimas dos (`indices_satelitales`, `alertas`) son el núcleo del análisis automático y la entrega de alertas.
+
+Todas las tablas usan `UUID` como clave primaria. Las tablas con datos geoespaciales usan el tipo `GEOMETRY` de PostGIS.
+
+---
+
+## Tablas
+
+---
+
+### 1. `usuarios`
+
+Almacena los datos de cada productor registrado en la plataforma.
+
+| Campo | Tipo | Descripción |
+|---|---|---|
+| `id` | UUID PK | Identificador único del usuario |
+| `nombre` | TEXT | Nombre del productor |
+| `apellido` | TEXT | Apellido del productor |
+| `email` | TEXT UNIQUE | Correo electrónico — usado para login |
+| `whatsapp` | TEXT | Número de WhatsApp con prefijo país (ej: +5491155551234) |
+| `ubicacion_geo` | POINT | Ubicación geográfica aproximada del productor |
+| `rol` | ENUM | Rol dentro del sistema: `productor`, `asesor`, `admin` |
+| `creado_en` | TIMESTAMP | Fecha y hora de registro |
+
+**Notas:**
+- `rol` usa ENUM para limitar los valores posibles y evitar inconsistencias.
+- `whatsapp` es el canal principal de entrega de alertas — campo obligatorio.
+- `ubicacion_geo` se usa para contextualizar datos climáticos cuando no hay lote activo aún.
+
+---
+
+### 2. `campos`
+
+Representa el establecimiento agropecuario (la unidad mayor: la estancia, el campo, la empresa). Un usuario puede tener múltiples campos.
+
+| Campo | Tipo | Descripción |
+|---|---|---|
+| `id` | UUID PK | Identificador único del campo |
+| `usuario_id` | UUID FK → usuarios | Dueño del campo |
+| `nombre` | TEXT | Nombre del establecimiento (ej: "La Esperanza") |
+| `partido` | TEXT | Partido o departamento donde está ubicado |
+| `provincia` | TEXT | Provincia |
+| `poligono` | GEOMETRY | Polígono exterior del establecimiento completo |
+| `activo` | BOOLEAN | Indica si el campo está en monitoreo activo |
+| `creado_en` | TIMESTAMP | Fecha de alta del campo |
+
+**Notas:**
+- `poligono` usa tipo GEOMETRY (PostGIS) para permitir consultas espaciales y cálculo de superficie.
+- La separación entre `campos` y `lotes` permite que un establecimiento tenga múltiples parcelas con cultivos distintos.
+
+---
+
+### 3. `lotes`
+
+Representa cada parcela o potrero dentro de un campo. Es la unidad mínima de análisis satelital.
+
+| Campo | Tipo | Descripción |
+|---|---|---|
+| `id` | UUID PK | Identificador único del lote |
+| `campo_id` | UUID FK → campos | Campo al que pertenece el lote |
+| `usuario_id` | UUID FK → usuarios | Usuario dueño (desnormalizado para queries rápidas) |
+| `cultivo_id` | UUID FK → cultivos | Cultivo activo en este lote (campaña actual) |
+| `nombre` | TEXT | Nombre o número del lote (ej: "Potrero Norte", "Lote 3") |
+| `coordenadas` | POINT | Centroide del lote — usado para consultas climáticas |
+| `partido` | TEXT | Partido o departamento |
+| `provincia` | TEXT | Provincia |
+| `poligono` | GEOMETRY | Polígono exacto del lote — usado para análisis GEE |
+| `superficie` | DECIMAL | Superficie en hectáreas — calculada desde el polígono |
+| `activo` | BOOLEAN | Indica si el lote está en monitoreo activo |
+| `creado_en` | TIMESTAMP | Fecha de alta del lote |
+
+**Notas:**
+- `poligono` es el campo más importante de esta tabla — es el que se envía a Google Earth Engine para recortar las imágenes satelitales.
+- `superficie` se calcula automáticamente desde el polígono al momento del alta usando PostGIS (`ST_Area`).
+- `coordenadas` (centroide) se usa para consultar el clima puntual del lote en Open-Meteo.
+- `usuario_id` está desnormalizado (también existe en `campos`) para evitar JOINs innecesarios en queries frecuentes.
+
+---
+
+### 4. `cultivos`
+
+Almacena la información agronómica de cada campaña por lote. Un lote puede tener múltiples cultivos a lo largo de los años (uno por campaña).
+
+| Campo | Tipo | Descripción |
+|---|---|---|
+| `id` | UUID PK | Identificador único del cultivo |
+| `campo_id` | UUID FK → campos | Campo al que pertenece |
+| `nombre` | TEXT | Nombre descriptivo (ej: "Soja 2024/25") |
+| `tipo` | ENUM | Especie: `soja`, `maiz`, `trigo`, `girasol`, `otro` |
+| `variedad` | TEXT | Variedad o híbrido sembrado (opcional) |
+| `fecha_siembra` | DATE | Fecha de siembra — si se desconoce, se infiere por NDVI |
+| `fecha_cosecha_est` | DATE | Fecha estimada de cosecha |
+| `etapa_actual` | TEXT | Etapa fenológica calculada automáticamente (escala BBCH) |
+| `riego` | BOOLEAN | Indica si el lote tiene riego suplementario |
+| `aplicaciones` | JSONB | Registro de aplicaciones agroquímicas (flexible) |
+| `campaña` | TEXT | Identificador de la campaña (ej: "2024/25") |
+| `creado_en` | TIMESTAMP | Fecha de carga del cultivo |
+
+**Notas:**
+- `fecha_siembra` puede quedar nula si el productor no la conoce — en ese caso el sistema infiere la etapa fenológica analizando la curva histórica de NDVI del lote.
+- `etapa_actual` se actualiza automáticamente cada vez que se procesa una imagen nueva, calculando los días desde siembra y mapeando a la escala BBCH del cultivo.
+- `aplicaciones` usa JSONB para no requerir una tabla separada en el piloto. Estructura sugerida: `[{"fecha": "2025-01-10", "producto": "glifosato", "dosis": "2 l/ha"}]`.
+- `campaña` permite distinguir ciclos productivos del mismo lote en años consecutivos.
+
+---
+
+### 5. `indices_satelitales`
+
+Guarda el historial de índices espectrales calculados por Google Earth Engine para cada lote. Es la memoria histórica que permite detectar anomalías por comparación.
+
+| Campo | Tipo | Descripción |
+|---|---|---|
+| `id` | UUID PK | Identificador único del registro |
+| `lote_id` | UUID FK → lotes | Lote analizado |
+| `fecha_imagen` | DATE | Fecha de la imagen satelital procesada |
+| `satelite` | TEXT | Fuente: `Sentinel-2`, `Landsat-8`, `Landsat-9` |
+| `ndvi_media` | DECIMAL | Valor medio de NDVI en el polígono del lote (0 a 1) |
+| `ndvi_p10` | DECIMAL | Percentil 10 de NDVI — detecta zonas deprimidas |
+| `ndwi_media` | DECIMAL | Valor medio de NDWI en el polígono (−1 a 1) |
+| `mndwi_media` | DECIMAL | Valor medio de MNDWI — detecta agua superficial libre |
+| `nubosidad_pct` | DECIMAL | Porcentaje de nubosidad en la imagen (0 a 100) |
+| `procesado_en` | TIMESTAMP | Fecha y hora en que GEE procesó la imagen |
+
+**Notas:**
+- Solo se guardan imágenes con `nubosidad_pct < 20` para garantizar calidad de datos.
+- `ndvi_p10` es tan importante como la media — una caída del percentil 10 indica que una zona del lote está muy deprimida aunque el promedio general se vea bien.
+- Esta tabla es la que alimenta el cálculo de anomalías: el sistema compara el `ndvi_media` actual contra todos los registros históricos de la misma etapa fenológica.
+
+---
+
+### 6. `alertas`
+
+Registra cada evento de anomalía detectado, el texto generado por la IA y el estado de entrega y revisión por parte del productor.
+
+| Campo | Tipo | Descripción |
+|---|---|---|
+| `id` | UUID PK | Identificador único de la alerta |
+| `lote_id` | UUID FK → lotes | Lote donde se detectó la anomalía |
+| `cultivo_id` | UUID FK → cultivos | Cultivo afectado |
+| `indice` | ENUM | Índice que disparó la alerta: `ndvi`, `ndwi`, `mndwi` |
+| `severidad` | ENUM | Nivel de severidad: `leve`, `moderada`, `severa` |
+| `zona_afectada` | TEXT | Descripción de la zona del lote afectada (del mapa de ambientes) |
+| `valor_actual` | DECIMAL | Valor del índice en la imagen que disparó la alerta |
+| `valor_historico` | DECIMAL | Media histórica del índice para esa etapa fenológica |
+| `texto_ia` | TEXT | Texto de alerta generado por Claude en lenguaje natural |
+| `recomendacion` | TEXT | Recomendación accionable generada por Claude |
+| `wapp_enviado` | BOOLEAN | Confirma si el mensaje fue enviado por WhatsApp vía Twilio |
+| `wapp_enviado_en` | TIMESTAMP | Fecha y hora exacta del envío por WhatsApp |
+| `revisada` | BOOLEAN | El productor marcó la alerta como atendida |
+| `revisada_en` | TIMESTAMP | Fecha y hora en que el productor la marcó como revisada |
+| `creado_en` | TIMESTAMP | Fecha y hora de detección de la anomalía |
+
+**Notas:**
+- `valor_actual` y `valor_historico` se guardan para poder reconstruir el razonamiento de la alerta y para auditarla si el productor cuestiona si era real.
+- `wapp_enviado` y `wapp_enviado_en` permiten detectar fallas en el envío y reintentar.
+- `revisada` cierra el ciclo de la alerta — es lo que cambia el badge del dashboard de rojo a gris.
+- `texto_ia` y `recomendacion` se guardan separados para permitir mostrarlos de forma diferenciada en el dashboard y en el mensaje de WhatsApp.
+
+---
+
+## Relaciones entre tablas
+
+```
+usuarios
+  └── campos          (un usuario tiene muchos campos)
+        └── lotes     (un campo tiene muchos lotes)
+              ├── cultivos            (un lote tiene un cultivo activo por campaña)
+              ├── indices_satelitales (un lote acumula muchos registros históricos)
+              └── alertas             (un lote puede tener muchas alertas a lo largo del tiempo)
+```
+
+---
+
+## Tablas futuras (post-piloto)
+
+Estas tablas no son necesarias para el MVP pero se anticipan para la escala:
+
+| Tabla | Propósito |
+|---|---|
+| `ambientes` | Guarda el mapa de zonas históricas de cada lote (GeoJSON con clases 1 a 4) |
+| `clima_historico` | Caché local de datos climáticos de Open-Meteo por lote |
+| `organizaciones` | Agrupa múltiples usuarios bajo una empresa agropecuaria (modelo SaaS) |
+| `notificaciones_config` | Preferencias de alertas por lote: umbrales personalizados, día de resumen semanal |
+
+---
+
+*Documento generado el 2026-04-29 · CampoRemoto IA v1.0*-

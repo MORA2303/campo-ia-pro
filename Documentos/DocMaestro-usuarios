@@ -1,0 +1,455 @@
+CampoRemoto IA — Documento Maestro del Proyecto
+Plataforma de Inteligencia Agrícola Proactiva
+Estado: Pre-desarrollo · Versión: 0.4
+Metodología: Vibe Coding con asistencia de IA
+________________________________________
+Índice
+1.	Visión del producto
+2.	Problema que resuelve
+3.	Tipos de usuario
+4.	Recorridos de usuario
+5.	Arquitectura del sistema
+6.	Módulos funcionales
+7.	Flujo de datos end-to-end
+8.	Modelo de ambientes (insumo base)
+9.	Sistema de alertas IA
+10.	Entrega por WhatsApp
+11.	Dashboard web por rol
+12.	Plan de desarrollo por fases
+13.	Decisiones tomadas
+14.	Glosario
+________________________________________
+1. Visión del producto
+CampoRemoto IA es una plataforma de monitoreo agrícola que analiza de forma autónoma el flujo de imágenes satelitales de lotes productivos, detecta anomalías cruzando índices espectrales con fenología y clima, y entrega alertas accionables al productor en lenguaje natural por WhatsApp — sin requerir un experto intermediario.
+Frase guía del producto:
+"Tu lote Norte presenta estrés hídrico moderado en el sector sur. La anomalía comenzó hace 3 días. Te recomendamos verificar el estado del suelo antes del próximo evento de lluvia previsto para el jueves."
+________________________________________
+2. Problema que resuelve
+El productor agropecuario no técnico no tiene tiempo ni herramientas para interpretar imágenes satelitales. Los mapas de NDVI o NDWI existen, pero requieren un agrónomo para traducirlos en decisiones. El resultado: detección tardía de problemas, pérdidas evitables.
+Brecha actual:
+•	Imágenes satelitales disponibles → sin interpretación automática
+•	Anomalías detectables con datos → sin alertas proactivas
+•	Historial de comportamiento del lote disponible → sin contextualización
+Lo que CampoRemoto IA hace diferente:
+•	Analiza sin que el usuario lo pida
+•	Traduce a lenguaje llano
+•	Contextualiza cada evento contra el historial del lote
+•	Llega al celular del productor directamente
+________________________________________
+3. Tipos de usuario
+La plataforma tiene tres roles con permisos y recorridos distintos.
+Rol	Descripción	Canal principal	Acceso
+Productor	Usuario principal. No técnico. Dueño de los campos y lotes.	WhatsApp + Dashboard	Solo sus propios campos y lotes
+Asesor	Ingeniero agrónomo que asesora a uno o varios productores.	Dashboard	Los lotes que el productor le asignó, con permisos de edición o solo visualización
+Administrador	Opera la plataforma completa. Gestiona usuarios, campos, integraciones y configuración global.	Dashboard (panel admin)	Todo el sistema
+Reglas de permisos
+Acción	Productor	Asesor (con permiso)	Asesor (sin permiso)	Admin
+Ver sus lotes	✓	✓	✓	✓
+Editar datos de lote/cultivo	✓	✓	✗	✓
+Cargar nuevos lotes	✓	✓	✗	✓
+Recibir alertas WhatsApp	✓	✗	✗	✗
+Descargar reporte NDVI	✓	✓	✓	✓
+Dar de alta asesores	✓	✗	✗	✓
+Gestionar todos los usuarios	✗	✗	✗	✓
+Configurar umbrales globales	✗	✗	✗	✓
+Ver estado de integraciones	✗	✗	✗	✓
+________________________________________
+4. Recorridos de usuario
+4.1 Usuario Productor
+Landing Page
+    │
+    ▼
+Registro de usuario
+    │
+    ├──▶ Datos del lote/campo (alta)
+    │         │
+    │         ▼
+    │    Análisis de datos de campo
+    │    + imágenes satelitales + clima
+    │         │
+    │         ▼
+    │    Resultado del análisis
+    │         │
+    │         ├──▶ Resultado (+) ──▶ Descarga reporte NDVI ──▶ Reporte vía WhatsApp
+    │         │
+    │         └──▶ Resultado (−) ──▶ Detección del problema ──▶ Reporte vía WhatsApp
+    │
+    └──▶ Alta de usuario Asesor
+              │
+              ├──▶ Permisos: SÍ ──▶ Edita
+              │
+              └──▶ Permisos: NO ──▶ Visualiza
+Descripción de cada etapa:
+•	Landing Page: página pública de presentación del producto con call to action de registro.
+•	Registro de usuario: nombre, apellido, email, WhatsApp, ubicación geográfica y contraseña.
+•	Alta de lote/campo: carga del polígono (shapefile, KML o dibujado en mapa), datos de siembra (cultivo, fecha, variedad) y parámetros básicos.
+•	Análisis automatizado: el sistema procesa imágenes satelitales de GEE, calcula NDVI/NDWI/MNDWI, cruza con clima y fenología. El productor no interviene en esta etapa.
+•	Resultado positivo: el lote está dentro de los parámetros normales. Se genera un reporte de estado descargable y se envía un resumen semanal por WhatsApp.
+•	Resultado negativo: se detecta una anomalía. El sistema identifica el problema, genera la alerta en lenguaje natural y la envía por WhatsApp con imagen del lote.
+•	Alta de usuario Asesor: el productor puede invitar a un asesor y definir si tiene permisos de edición o solo de visualización.
+________________________________________
+4.2 Usuario Asesor
+Landing Page
+    │
+    ├──▶ El Productor asigna alta de usuario Asesor
+    │
+    └──▶ Registro de usuario propio
+              │
+              ▼
+         Permisos asignados por el Productor
+              │
+              ├──▶ Permisos: SÍ (edición)
+              │         │
+              │         ▼
+              │    Edita datos del lote/campo (alta)
+              │         │
+              │         ▼
+              │    Análisis de datos de campo
+              │    + imágenes satelitales + clima
+              │         │
+              │         ▼
+              │    Resultado del análisis
+              │         │
+              │         ├──▶ Resultado (+) ──▶ Reporte vía WhatsApp (al productor)
+              │         │
+              │         └──▶ Resultado (−) ──▶ Detección del problema ──▶ Reporte vía WhatsApp (al productor)
+              │
+              └──▶ Permisos: NO (solo visualización)
+                        │
+                        ▼
+                   Visualiza mapas, índices e historial
+                   (sin capacidad de edición)
+Descripción de cada etapa:
+•	Acceso: el asesor puede llegar a la plataforma de dos formas: registrarse por su cuenta y esperar que un productor lo asigne, o recibir una invitación directa del productor con el rol ya configurado.
+•	Permisos SÍ (edición): puede cargar y modificar datos de lotes y cultivos, actualizar fechas de siembra, agregar aplicaciones y gestionar campañas.
+•	Permisos NO (visualización): solo puede ver los mapas de índices, el historial de alertas y las series temporales. No puede editar ningún dato ni cargar nuevos lotes.
+•	Alertas WhatsApp: el asesor nunca recibe las alertas directamente. Todas las notificaciones van al número del productor dueño del lote.
+________________________________________
+4.3 Usuario Administrador
+Landing Page — Panel de Administración
+    │
+    ├──▶ Vista global de todos los usuarios
+    │         │
+    │         └──▶ Alta / baja / modificación / detalle de cada usuario
+    │              (datos personales, campos y lotes asociados, historial de alertas,
+    │               último acceso al dashboard, mensajes WhatsApp fallidos)
+    │
+    ├──▶ Vista global de lotes y campos
+    │         │
+    │         ├──▶ Todos los lotes con todos los datos — filtrable
+    │         │         │
+    │         │         ├──▶ Modo mapa ──▶ Alta / baja / modificación por lote
+    │         │         │
+    │         │         └──▶ Modo tabla ──▶ Alta / baja / modificación por lote
+    │         │
+    │         └──▶ Última imagen procesada por lote
+    │
+    ├──▶ Panel del estado general del sistema
+    │         │
+    │         ├──▶ Imágenes procesadas y lotes en monitoreo
+    │         │         └──▶ Alertas enviadas hoy
+    │         │
+    │         └──▶ Errores del sistema en las últimas 24 horas
+    │                   └──▶ Inactividad del lote ──▶ No envía alerta
+    │
+    └──▶ Configuración general del sistema
+              │
+              ├──▶ Define Umbrales
+              │         ├──▶ Por Índice (NDVI / NDWI / MNDWI)
+              │         ├──▶ Por Cultivo (Soja / Maíz / Trigo)
+              │         └──▶ Por Fenología (etapa del ciclo)
+              │
+              ├──▶ Integraciones externas
+              │         ├──▶ API satelital (GEE) ──▶ Agente IA ──▶ Resultado del análisis + WhatsApp
+              │         │                                               │
+              │         │                                               ├──▶ Resultado (+) ──▶ Reporte WhatsApp
+              │         │                                               └──▶ Resultado (−) ──▶ Detección problema ──▶ Reporte WhatsApp
+              │         │
+              │         └──▶ API clima (Open-Meteo) ──▶ Agente IA
+              │
+              ├──▶ Resumen semanal
+              │         └──▶ Formato de envío ──▶ Resumen de alertas de lotes
+              │
+              └──▶ Parámetros de análisis satelital
+                        ├──▶ % nubes
+                        │         ├──▶ Cantidad correcta ──▶ Ejecuta orden a GEE
+                        │         └──▶ Cantidad insuficiente ──▶ Error ──▶ Falta de imágenes apropiadas
+                        │
+                        └──▶ N imágenes históricas
+                                  ├──▶ Cantidad correcta ──▶ Ejecuta orden a GEE
+                                  └──▶ Cantidad insuficiente ──▶ Error ──▶ Falta de imágenes apropiadas
+Descripción de cada etapa:
+•	Vista global de usuarios: listado completo con alta, baja, modificación y acceso al detalle de cada usuario (datos personales, campos y lotes asociados, historial de alertas, último acceso y estado de mensajes WhatsApp).
+•	Vista global de lotes y campos: todos los lotes de todos los productores en modo mapa o modo tabla, filtrables. Permite dar de alta, modificar o desactivar lotes en nombre de cualquier productor. La columna "última imagen procesada" detecta lotes sin datos recientes.
+•	Panel del estado del sistema: métricas operativas en tiempo real — imágenes procesadas, lotes activos, alertas enviadas, fallos y errores de las últimas 24 horas. Un lote inactivo por error no genera alertas.
+•	Configuración de umbrales: valores por defecto de detección de anomalías en tres dimensiones: índice, cultivo y etapa fenológica.
+•	Integraciones externas: credenciales y parámetros de GEE y Open-Meteo, que alimentan al Agente IA. Gestiona reintentos de WhatsApp fallidos.
+•	Resumen semanal: formato y contenido del resumen semanal global.
+•	Parámetros de análisis satelital: umbral de nubosidad máxima y cantidad mínima de imágenes históricas. Si los parámetros no se cumplen, el sistema registra error y suspende alertas del lote.
+________________________________________
+5. Arquitectura del sistema
+┌─────────────────────────────────────────────────────┐
+│                   FUENTES DE DATOS                   │
+│  Google Earth Engine │ API Climática │ Lotes usuario │
+└────────────┬─────────────────┬────────────┬──────────┘
+             │                 │            │
+             ▼                 ▼            ▼
+┌─────────────────────────────────────────────────────┐
+│               MOTOR DE ANÁLISIS                      │
+│   Mosaicos · Filtrado nubes · NDVI · NDWI · MNDWI  │
+│   Historial de ambientes · Fenología inferida        │
+└──────────────────────────┬──────────────────────────┘
+                           │
+                           ▼
+┌─────────────────────────────────────────────────────┐
+│              DETECCIÓN DE ANOMALÍAS                  │
+│  Caída de vigor NDVI · Estrés hídrico NDWI          │
+│  vs. fase fenológica · vs. clima · vs. historial     │
+└──────────────────────────┬──────────────────────────┘
+                           │
+                           ▼
+┌─────────────────────────────────────────────────────┐
+│              AGENTE IA (Claude API)                  │
+│   Anomalía + Ambiente + Clima + Fenología            │
+│   → Mensaje en lenguaje natural + recomendación      │
+└──────────┬─────────────────────────┬────────────────┘
+           │                         │
+           ▼                         ▼
+┌──────────────────┐      ┌──────────────────────────┐
+│  WhatsApp Bot    │      │      Dashboard Web        │
+│  (Twilio)        │      │  Vista por rol:           │
+│  Alerta + imagen │      │  Productor · Asesor · Admin│
+└──────────────────┘      └──────────────────────────┘
+________________________________________
+6. Módulos funcionales
+6.1 Ingesta y procesamiento satelital
+•	Conexión a Google Earth Engine via Python API
+•	Descarga de imágenes Landsat 8/9 y Sentinel-2 para cada lote
+•	Generación de mosaicos por fecha (cloud-free composites)
+•	Filtrado de nubes con umbral configurable por el admin (por defecto: máx. 20% de nubosidad)
+•	Cálculo de índices: NDVI, NDWI, MNDWI
+•	Validación de cantidad mínima de imágenes históricas antes de activar el análisis
+•	Si nubosidad o imágenes son insuficientes: el sistema registra error y suspende alertas del lote
+6.2 Modelo de ambientes históricos
+•	Genera un mapa categórico de susceptibilidad al anegamiento por lote (Clases 1 a 4)
+•	Se calcula una sola vez por lote al momento del onboarding
+•	Se recalcula si el productor o el admin lo solicita, o automáticamente cada 2 años
+•	Se usa como contexto permanente para localizar y describir anomalías
+6.3 Inferencia fenológica
+•	Si el productor cargó fecha de siembra y cultivo: etapa calculada automáticamente (escala BBCH)
+•	Si no hay datos de siembra: etapa inferida desde la curva histórica de NDVI del lote
+•	La etapa fenológica determina qué es "normal" vs "anómalo" para cada índice en cada momento
+6.4 Integración climática
+•	API: Open-Meteo (gratuita, sin key)
+•	Datos: precipitación acumulada 7 días, temperatura máx/mín, ETo
+•	Se cruza automáticamente al momento de generar cada alerta
+6.5 Detección de anomalías
+•	Comparación del índice actual vs. media histórica para esa etapa fenológica (z-score)
+•	Umbrales en tres dimensiones: índice · cultivo · etapa fenológica
+•	Jerarquía de umbrales: configuración del lote > configuración del productor > umbrales globales del admin
+•	Clasificación de severidad: leve / moderada / severa
+•	Detección de sectores afectados usando el mapa de ambientes
+6.6 Agente IA — Motor de alertas
+•	Prompt estructurado enviado a Claude API
+•	Inputs: nombre del lote, cultivo, etapa fenológica, índice afectado, severidad, días desde inicio, zona del mapa de ambientes, clima reciente
+•	Output: mensaje en lenguaje natural (máx. 3 oraciones) + recomendación accionable (1 oración)
+•	El texto generado se guarda en la tabla alertas para auditoría y visualización en dashboard
+6.7 Entrega WhatsApp
+•	Canal: Twilio WhatsApp Business API
+•	Destinatario: siempre el número del productor dueño del lote (nunca el asesor)
+•	Contenido: texto de alerta + imagen del mapa del lote con escala de color del índice
+•	Frecuencia: alerta cuando se detecta anomalía + resumen semanal configurable
+•	Reintentos automáticos ante fallo; el admin gestiona los fallidos desde el panel
+6.8 Reporte NDVI descargable
+•	Generado en resultado positivo y negativo
+•	Incluye: mapa del lote con índice actual, serie temporal, comparativa vs. media histórica, estado por zona de ambiente
+•	Disponible para descarga en el dashboard por el productor y por el asesor (con o sin permisos de edición)
+6.9 Dashboard web — vistas por rol
+•	Productor: sus lotes, alertas, serie temporal, reporte NDVI, gestión de asesores, configuración
+•	Asesor: lotes asignados en modo visualización o edición según permisos del productor
+•	Admin: vista global de usuarios, lotes, estado del sistema, configuración global del sistema
+________________________________________
+7. Flujo de datos end-to-end
+[Scheduler — se activa cuando GEE detecta imagen nueva sin nubes]
+
+1. Para cada lote activo:
+   a. Consultar GEE: ¿hay imagen nueva con nubosidad < umbral configurado?
+   b. ¿Hay suficientes imágenes históricas? → Si no: registrar error, no procesar
+   c. Si hay imagen válida → calcular NDVI, NDWI, MNDWI para el polígono
+   d. Guardar estadísticas en tabla: indices_satelitales
+
+2. Para cada lote con índice nuevo:
+   a. Obtener clima de los últimos 7 días (Open-Meteo)
+   b. Obtener etapa fenológica actual (calculada o inferida por NDVI)
+   c. Obtener mapa de ambientes del lote (pre-calculado)
+   d. Comparar índice actual vs. histórico → calcular anomalía (z-score)
+
+3. Si anomalía >= umbral configurado:
+   a. Construir prompt para Claude API (Agente IA)
+   b. Obtener texto de alerta + recomendación
+   c. Generar imagen del lote (mapa de color del índice)
+   d. Enviar WhatsApp al productor (Twilio): texto + imagen
+   e. Guardar alerta en tabla: alertas (incluyendo wapp_enviado)
+   f. Mostrar alerta en dashboard
+
+4. En todos los casos (anomalía o no):
+   a. Generar reporte NDVI disponible para descarga
+   b. Actualizar estado del lote en dashboard
+   c. Acumular datos para resumen semanal
+________________________________________
+8. Modelo de ambientes (insumo base)
+El modelo de ambientes es la memoria histórica del lote.
+Lógica del script adaptado:
+1.	Se procesan imágenes históricas Landsat del lote (últimos 5-10 años, configurable por admin)
+2.	Para cada imagen se calcula MNDWI (índice de agua superficial)
+3.	Se mide el porcentaje del lote inundado en cada fecha
+4.	Se ordenan los eventos por intensidad de inundación
+5.	Se generan máscaras binarias por subconjuntos de eventos
+6.	Se construye un mapa categórico de cuatro clases: 
+o	Clase 1: Zona frecuentemente inundable (muy susceptible)
+o	Clase 2: Zona moderadamente susceptible
+o	Clase 3: Zona raramente afectada
+o	Clase 4: Zona históricamente seca (nunca afectada)
+Parámetros configurables por el admin:
+•	Umbral MNDWI para definir "inundado"
+•	Porcentajes de corte entre subconjuntos de eventos
+•	Radio de suavizado espacial
+•	Rango de años a considerar en el historial
+________________________________________
+9. Sistema de alertas IA
+Estructura del prompt al Agente IA
+Sistema: Eres un asistente agrícola. Generás alertas breves y claras
+para productores no técnicos. Máximo 3 oraciones para la alerta y 1
+para la recomendación. Usá lenguaje simple, sin tecnicismos.
+
+Usuario:
+Lote: {nombre_lote}
+Cultivo: {cultivo} en etapa {etapa_fenologica}
+Anomalía detectada: caída de {indice} ({valor_actual} vs media histórica {valor_historico})
+Severidad: {leve|moderada|severa}
+Días desde inicio de la anomalía: {dias}
+Zona del lote afectada: {descripcion_ambiente}
+Clima reciente: {lluvia_7dias} mm en 7 días, temperatura máx {temp_max}°C
+Clasificación de severidad (umbrales globales por defecto)
+Índice	Etapa	Umbral leve	Umbral moderado	Umbral severo
+NDVI	Emergencia	−8%	−15%	−25%
+NDVI	Vegetativo	−10%	−20%	−30%
+NDVI	Floración	−10%	−20%	−30%
+NDVI	Llenado	−12%	−22%	−35%
+NDWI	Todas	+15%	+30%	+50%
+Ejemplo de alerta generada
+🔴 Lote La Esperanza Tu lote presenta una caída severa de vigor en el sector norte (Zona 1), que históricamente es la más susceptible al anegamiento. La anomalía comenzó hace 6 días y coincide con el período crítico de floración de tu soja. Recomendación: Visitá el sector norte del lote antes del viernes. Se esperan lluvias que podrían agravar el anegamiento existente.
+________________________________________
+10. Entrega por WhatsApp
+Contenido del mensaje
+1.	Emoji de estado (🟡 leve / 🟠 moderada / 🔴 severa)
+2.	Nombre del lote en negrita
+3.	Texto de alerta (3 oraciones máximo)
+4.	Recomendación accionable (1 oración)
+5.	Imagen adjunta: mapa del lote con escala de color del índice afectado
+Frecuencia
+•	Alerta reactiva: solo cuando se detecta anomalía nueva o escalada en severidad
+•	Resumen semanal: día y hora configurables por el productor (default global definido por el admin)
+•	Sin mensaje = sin novedad: no se envían mensajes cuando todo está normal salvo el resumen semanal
+•	Las alertas siempre van al número del productor — nunca al asesor
+Gestión de fallos
+•	Si Twilio falla el envío: wapp_enviado = false en tabla alertas
+•	El admin ve los fallos en el panel de estado del sistema
+•	Reintento manual disponible desde el panel de integraciones del admin
+________________________________________
+11. Dashboard web por rol
+Rutas del Productor
+Ruta	Descripción
+/dashboard	Vista general: mapa de sus lotes con estado de alerta + métricas
+/lotes	Listado de sus lotes con último índice y estado
+/lotes/:id	Detalle del lote: mapa, selector de índice, serie temporal, mapa de ambientes, historial de alertas
+/lotes/nuevo	Carga de nuevo lote (shapefile, KML o dibujado en mapa)
+/alertas	Historial completo de alertas con filtros
+/reportes/:id	Descarga de reporte NDVI del lote
+/configuracion	Datos de siembra, umbrales personalizados, notificaciones WhatsApp
+/asesores	Gestión de asesores: invitar, asignar permisos (edición / visualización)
+Rutas del Asesor
+Ruta	Descripción
+/dashboard	Vista de los lotes asignados con estado de alerta
+/lotes/:id	Detalle del lote asignado (edición o visualización según permisos)
+/reportes/:id	Descarga de reporte NDVI (disponible siempre)
+/alertas	Historial de alertas de los lotes asignados
+Rutas del Administrador
+Ruta	Descripción
+/admin	Panel principal: métricas globales + estado del sistema + log de actividad
+/admin/usuarios	Listado global de usuarios con alta, baja, modificación y detalle
+/admin/lotes	Vista global de todos los lotes en modo mapa y modo tabla
+/admin/alertas	Historial global de alertas con filtros y gestión de fallos de WhatsApp
+/admin/configuracion	Umbrales globales, integraciones externas, resumen semanal, parámetros satelitales
+________________________________________
+12. Plan de desarrollo por fases
+Fase 0 — Setup (semana 1)
+•	[ ] Crear repositorio con estructura de carpetas
+•	[ ] Configurar entorno de desarrollo
+•	[ ] Autenticación con Google Earth Engine
+•	[ ] Base de datos con extensión geoespacial (local con Docker)
+•	[ ] Sistema de autenticación con roles (productor / asesor / admin)
+Fase 1 — MVP análisis (semanas 2-3)
+•	[ ] Script de ingesta GEE: dado un polígono, retornar NDVI/NDWI por fecha
+•	[ ] Validación de nubosidad e imágenes históricas suficientes
+•	[ ] Adaptación del script de ambientes como módulo importable
+•	[ ] Integración Open-Meteo: dado lat/lon, retornar clima reciente
+•	[ ] Lógica de detección de anomalías (z-score vs histórico)
+•	[ ] Tests unitarios para cada módulo
+Fase 2 — Motor de alertas (semana 4)
+•	[ ] Integración Claude API (Agente IA)
+•	[ ] Construcción del prompt dinámico con todos los inputs
+•	[ ] Generación de imagen del lote (mapa de color del índice)
+•	[ ] Integración Twilio WhatsApp: envío de texto + imagen
+•	[ ] Generación de reporte NDVI descargable
+•	[ ] Script de prueba end-to-end para un lote hardcodeado
+Fase 3 — Backend y scheduler (semanas 5-6)
+•	[ ] API REST: endpoints CRUD de usuarios, campos, lotes, cultivos, alertas
+•	[ ] Modelos de base de datos y migraciones
+•	[ ] Scheduler: análisis por lote activado por imagen nueva en GEE
+•	[ ] Lógica de permisos por rol (productor / asesor con permisos / asesor sin permisos / admin)
+Fase 4 — Dashboard web (semanas 7-10) (segunda etapa — post MVP)
+•	[ ] Vistas del Productor: dashboard, lotes, detalle, alertas, reportes, asesores, configuración
+•	[ ] Vistas del Asesor: dashboard restringido, detalle de lotes asignados
+•	[ ] Vistas del Admin: panel global, usuarios, lotes, configuración del sistema
+•	[ ] Mapa interactivo con polígonos de lotes coloreados por estado
+•	[ ] Gráfico de serie temporal NDVI/NDWI por lote
+•	[ ] Mapa de ambientes por lote (Clases 1-4)
+•	[ ] Formulario de carga de lote y datos de siembra
+Fase 5 — Piloto (semana 11+)
+•	[ ] Deploy backend (Railway o Render)
+•	[ ] Deploy frontend (Vercel)
+•	[ ] Cargar primeros 3-5 lotes reales con los tres roles activos
+•	[ ] Monitoreo y ajuste de umbrales globales
+•	[ ] Feedback del productor → iteración
+________________________________________
+13. Decisiones tomadas
+#	Decisión	Resolución
+1	¿El scheduler corre diariamente o solo cuando GEE detecta imagen nueva sin nubes?	Solo cuando GEE detecta imagen nueva válida. Más eficiente y evita análisis con datos viejos o nublados.
+2	¿Se envía resumen semanal además de alertas?	Sí — alertas reactivas + resumen semanal. Día y hora configurables por el productor; el default global lo define el admin.
+3	¿MVP sin dashboard o con dashboard desde el inicio?	MVP primero solo con WhatsApp. El dashboard se construye en una segunda etapa post-MVP.
+4	¿Cómo se gestiona la fenología sin fecha de siembra?	Híbrido. Con fecha de siembra: escala BBCH automática. Sin fecha: inferencia por curva histórica de NDVI.
+5	¿Los umbrales son globales o configurables por productor?	Jerárquicos. Umbral del lote > umbral del productor > umbral global del admin.
+6	¿El asesor recibe alertas de WhatsApp?	No. Las alertas siempre van al productor. El asesor consulta el historial desde el dashboard.
+7	¿El asesor puede cargar lotes y editar datos?	Depende del permiso asignado por el productor. Permisos SÍ: edita y carga. Permisos NO: solo visualiza.
+8	¿El reporte NDVI se genera solo cuando hay anomalía?	No. Se genera en todos los análisis y está siempre disponible para descarga por el productor y el asesor.
+________________________________________
+14. Glosario
+Término	Definición
+NDVI	Normalized Difference Vegetation Index. Mide el vigor del cultivo. Valores altos = cultivo saludable.
+NDWI	Normalized Difference Water Index. Mide el contenido de agua en la planta. Útil para detectar estrés hídrico.
+MNDWI	Modified NDWI. Detecta agua superficial libre (inundaciones). Usado para construir el mapa de ambientes.
+Ambiente	Zona del lote con comportamiento histórico similar frente al agua. Clasificado en Clases 1 a 4.
+Fenología	Etapas de desarrollo del cultivo (emergencia, vegetativo, floración, llenado, madurez).
+Anomalía	Diferencia estadísticamente significativa entre el índice actual y el histórico para esa etapa fenológica.
+z-score	Medida de cuántas desviaciones estándar se aleja un valor de su media histórica. Base del sistema de detección.
+GEE	Google Earth Engine. Plataforma de análisis geoespacial con catálogo satelital completo.
+Agente IA	Motor de generación de alertas basado en Claude API. Recibe el contexto del análisis y produce el texto en lenguaje natural.
+Scheduler	Proceso que ejecuta el análisis satelital automáticamente cada vez que hay una imagen válida disponible.
+Lote	Parcela agrícola delimitada por un polígono geoespacial. Unidad mínima de análisis.
+Campo	Establecimiento agropecuario. Unidad mayor que contiene uno o más lotes.
+Reporte NDVI	Documento descargable con el estado actual del lote: índices, serie temporal, mapa de ambientes y comparativa histórica.
+Vibe coding	Metodología de desarrollo asistido por IA donde el desarrollador describe la intención y la IA genera el código.
+________________________________________
+Documento actualizado el 2026-05-06 · Versión 0.4 · Tres tipos de usuario incorporados con recorridos completos.
+

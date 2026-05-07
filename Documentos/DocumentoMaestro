@@ -1,0 +1,377 @@
+# CampoRemoto IA — Documento Maestro del Proyecto
+
+> Plataforma de Inteligencia Agrícola Proactiva  
+> Estado: Pre-desarrollo · Versión: 0.3  
+> Metodología: Vibe Coding con asistencia de IA
+
+---
+
+## Índice
+
+1. [Visión del producto](#1-visión-del-producto)
+2. [Problema que resuelve](#2-problema-que-resuelve)
+3. [Usuarios y contexto](#3-usuarios-y-contexto)
+4. [Arquitectura del sistema](#4-arquitectura-del-sistema)
+5. [Módulos funcionales](#5-módulos-funcionales)
+6. [Flujo de datos end-to-end](#6-flujo-de-datos-end-to-end)
+7. [Modelo de ambientes (insumo base)](#7-modelo-de-ambientes-insumo-base)
+8. [Sistema de alertas IA](#8-sistema-de-alertas-ia)
+9. [Entrega al productor (WhatsApp)](#9-entrega-al-productor-whatsapp)
+10. [Dashboard web](#10-dashboard-web)
+11. [Plan de desarrollo por fases](#11-plan-de-desarrollo-por-fases)
+12. [Decisiones tomadas](#12-decisiones-tomadas)
+13. [Glosario](#13-glosario)
+
+---
+
+## 1. Visión del producto
+
+CampoRemoto IA es una plataforma de monitoreo agrícola que analiza de forma autónoma el flujo de imágenes satelitales de lotes productivos, detecta anomalías cruzando índices espectrales con fenología y clima, y entrega alertas accionables al productor en lenguaje natural por WhatsApp — sin requerir un experto intermediario.
+
+**Frase guía del producto:**
+> "Tu lote Norte presenta estrés hídrico moderado en el sector sur. La anomalía comenzó hace 3 días. Te recomendamos verificar el estado del suelo antes del próximo evento de lluvia previsto para el jueves."
+
+---
+
+## 2. Problema que resuelve
+
+El productor agropecuario no técnico no tiene tiempo ni herramientas para interpretar imágenes satelitales. Los mapas de NDVI o NDWI existen, pero requieren un agrónomo para traducirlos en decisiones. El resultado: detección tardía de problemas, pérdidas evitables.
+
+**Brecha actual:**
+- Imágenes satelitales disponibles → sin interpretación automática
+- Anomalías detectables con datos → sin alertas proactivas
+- Historial de comportamiento del lote disponible → sin contextualización
+
+**Lo que CampoRemoto IA hace diferente:**
+- Analiza sin que el usuario lo pida
+- Traduce a lenguaje llano
+- Contextualiza cada evento contra el historial del lote
+- Llega al celular del productor directamente
+
+---
+
+## 3. Usuarios y contexto
+
+| Atributo | Detalle |
+|---|---|
+| Usuario principal | Productor agropecuario (no técnico) |
+| Canal de entrega primario | WhatsApp (mensaje de texto + imagen) |
+| Canal secundario | Dashboard web |
+| Escala inicial (piloto) | Hasta 50 lotes |
+| Escala objetivo | Cientos de lotes (SaaS) |
+| Región inicial | Argentina (zona pampeana) |
+| Cultivos prioritarios | Soja, maíz, trigo |
+
+---
+
+## 4. Arquitectura del sistema
+
+```
+┌─────────────────────────────────────────────────────┐
+│                   FUENTES DE DATOS                   │
+│  Google Earth Engine │ API Climática │ Lotes usuario │
+└────────────┬─────────────────┬────────────┬──────────┘
+             │                 │            │
+             ▼                 ▼            ▼
+┌─────────────────────────────────────────────────────┐
+│               MOTOR DE ANÁLISIS (Python)             │
+│   Mosaicos · Filtrado nubes · NDVI · NDWI · MNDWI  │
+│   Historial de ambientes · Fenología inferida        │
+└──────────────────────────┬──────────────────────────┘
+                           │
+                           ▼
+┌─────────────────────────────────────────────────────┐
+│              DETECCIÓN DE ANOMALÍAS                  │
+│  Caída de vigor NDVI · Estrés hídrico NDWI          │
+│  vs. fase fenológica · vs. clima · vs. historial     │
+└──────────────────────────┬──────────────────────────┘
+                           │
+                           ▼
+┌─────────────────────────────────────────────────────┐
+│              MOTOR DE ALERTAS IA (Claude API)        │
+│   Anomalía + Ambiente + Clima + Fenología            │
+│   → Mensaje en lenguaje natural + recomendación      │
+└──────────┬─────────────────────────┬────────────────┘
+           │                         │
+           ▼                         ▼
+┌──────────────────┐      ┌──────────────────────────┐
+│  WhatsApp Bot    │      │      Dashboard Web        │
+│  (Twilio)        │      │  (React + Mapbox)         │
+│  Alerta + imagen │      │  Mapa · Gráficos · Histor.│
+└──────────────────┘      └──────────────────────────┘
+```
+
+---
+
+## 5. Módulos funcionales
+
+### 5.1 Ingesta y procesamiento satelital
+- Conexión a Google Earth Engine via Python API
+- Descarga de imágenes Landsat 8/9 y Sentinel-2 para cada lote
+- Generación de mosaicos por fecha (cloud-free composites)
+- Filtrado de nubes y sombras
+- Cálculo de índices: **NDVI**, **NDWI**, **MNDWI**
+- Extracción de estadísticas por lote (media, desviación, percentiles)
+
+### 5.2 Modelo de ambientes históricos
+- Basado en el script de ambientes (ver sección 8)
+- Genera un mapa categórico de susceptibilidad al anegamiento por lote
+- Se calcula una sola vez por lote (o se actualiza estacionalmente)
+- Se usa como contexto permanente para interpretar eventos actuales
+
+### 5.3 Inferencia fenológica
+- Si el productor cargó fecha de siembra y cultivo: se calcula la etapa fenológica automáticamente (escala BBCH)
+- Si no hay datos: se infiere desde la curva de NDVI histórica del lote
+- La etapa fenológica determina qué es "normal" vs "anómalo" para ese índice en ese momento
+
+### 5.4 Integración climática
+- API: Open-Meteo (gratuita, sin key) o NASA POWER
+- Datos obtenidos: precipitación acumulada 7 días, temperatura máx/mín, ETo
+- Se cruza automáticamente al momento de generar la alerta
+
+### 5.5 Detección de anomalías
+- Comparación del índice actual vs. media histórica para esa etapa fenológica (z-score)
+- Umbrales configurables por cultivo y etapa
+- Clasificación de severidad: leve / moderado / severo
+- Detección de sectores afectados dentro del lote (usando la zonificación de ambientes)
+
+### 5.6 Motor de alertas IA
+- Prompt estructurado enviado a Claude API (claude-sonnet-4-20250514)
+- Inputs: nombre del lote, cultivo, etapa fenológica, índice afectado, severidad, días desde inicio, contexto del ambiente, clima reciente
+- Output: mensaje en lenguaje natural + recomendación accionable
+- Máximo 3 oraciones para el mensaje, 1 oración para la recomendación
+
+### 5.7 Entrega WhatsApp
+- Canal: Twilio WhatsApp Business API
+- Contenido del mensaje: texto de alerta + imagen del lote (mapa de índice con escala de color)
+- Frecuencia: solo cuando hay anomalía detectada (no mensajes de "todo bien")
+- Resumen semanal opcional por lote (configurable)
+
+### 5.8 Dashboard web
+- Vista de mapa con todos los lotes del usuario
+- Selector de índice (NDVI / NDWI / Ambientes)
+- Serie temporal de índices por lote (gráfico de línea)
+- Historial de alertas con estado (activa / resuelta)
+- Carga de lotes (shapefile, KML o dibujado en mapa)
+- Carga de datos de siembra (cultivo, fecha, variedad)
+
+---
+
+## 6. Flujo de datos end-to-end
+
+
+```
+[Cada N días — scheduler Celery]
+
+1. Para cada lote activo:
+   a. Consultar GEE si hay imagen nueva sin nubes desde última revisión
+   b. Si hay imagen → calcular NDVI, NDWI, MNDWI para el polígono del lote
+   c. Guardar estadísticas en PostgreSQL (tabla: lote_indices)
+
+2. Para cada lote con índice nuevo:
+   a. Obtener clima de los últimos 7 días (Open-Meteo)
+   b. Obtener etapa fenológica actual (calculada o inferida)
+   c. Obtener mapa de ambientes del lote (pre-calculado)
+   d. Comparar índice actual vs. histórico → calcular anomalía
+
+3. Si anomalía >= umbral configurado:
+   a. Construir prompt para Claude API
+   b. Obtener texto de alerta + recomendación
+   c. Generar imagen del lote (mapa de color del índice)
+   d. Enviar WhatsApp con Twilio (texto + imagen)
+   e. Guardar alerta en PostgreSQL (tabla: alertas)
+   f. Mostrar alerta en dashboard
+```
+
+---
+
+## 7. Modelo de ambientes (insumo base)
+
+El modelo de ambientes proviene del script existente y es el diferencial competitivo de la plataforma. Funciona como la "memoria del lote".
+
+**Lógica del script adaptado:**
+
+1. Se procesan imágenes históricas Landsat del lote (últimos 5-10 años)
+2. Para cada imagen se calcula MNDWI (índice de agua superficial)
+3. Se mide el porcentaje del lote inundado en cada fecha
+4. Se ordenan los eventos por intensidad de inundación
+5. Se generan máscaras binarias por subconjuntos de eventos (críticos, intermedios, raros)
+6. Se construye un mapa categórico de ambientes:
+   - **Clase 1:** Zona frecuentemente inundable (muy susceptible)
+   - **Clase 2:** Zona moderadamente susceptible
+   - **Clase 3:** Zona raramente afectada
+   - **Clase 4:** Zona históricamente seca (nunca afectada)
+
+**Uso en producción:**
+- Se calcula una vez por lote al momento del onboarding
+- Se recalcula si el productor lo solicita o cada 2 años
+- En las alertas, se usa para localizar el sector afectado: "el estrés hídrico está concentrado en la zona Clase 1 del sector norte, que históricamente es la más susceptible al anegamiento"
+
+**Parámetros configurables:**
+- Umbral MNDWI para definir "inundado"
+- Porcentajes de corte entre subconjuntos de eventos
+- Radio de suavizado espacial
+- Rango de años a considerar en el historial
+
+---
+
+## 8. Sistema de alertas IA
+
+### Estructura del prompt a Claude
+
+```
+Sistema: Eres un asistente agrícola. Generás alertas breves y claras para productores no técnicos. Máximo 3 oraciones para la alerta y 1 para la recomendación. Usá lenguaje simple, sin tecnicismos.
+
+Usuario:
+Lote: {nombre_lote}
+Cultivo: {cultivo} en etapa {etapa_fenologica}
+Anomalía detectada: caída de {indice} ({valor_actual} vs media histórica {valor_historico})
+Severidad: {leve|moderada|severa}
+Días desde inicio de la anomalía: {dias}
+Zona del lote afectada: {descripcion_ambiente}
+Clima reciente: {lluvia_7dias} mm en 7 días, temperatura máx {temp_max}°C
+```
+
+### Clasificación de severidad
+
+| Índice | Umbral leve | Umbral moderado | Umbral severo |
+|---|---|---|---|
+| NDVI | -10% vs histórico | -20% vs histórico | -30% vs histórico |
+| NDWI | +15% vs histórico | +30% vs histórico | +50% vs histórico |
+
+*Los umbrales son configurables por cultivo y etapa fenológica.*
+
+### Ejemplo de alerta generada
+
+> 📍 **Lote La Esperanza**
+> Tu lote presenta estrés hídrico moderado en la zona norte, que es históricamente la más susceptible al anegamiento. La anomalía comenzó hace 4 días y coincide con el período crítico de llenado de granos de tu soja.
+> **Recomendación:** Si el suelo tiene capacidad de drenaje, verificar físicamente el sector norte antes del jueves, cuando se esperan 15 mm de lluvia adicionales.
+
+---
+
+## 9. Entrega al productor (WhatsApp)
+
+### Configuración Twilio
+
+- Cuenta Twilio con WhatsApp Business habilitado
+- Sandbox para desarrollo, número propio para producción
+- Webhook: `POST /api/webhooks/whatsapp` (para recibir respuestas del productor en el futuro)
+
+### Contenido del mensaje
+
+1. Emoji de estado (🟡 leve / 🟠 moderado / 🔴 severo)
+2. Nombre del lote en negrita
+3. Texto de alerta (3 oraciones máximo)
+4. Recomendación (1 oración)
+5. Imagen adjunta: mapa del lote con escala de color del índice afectado
+
+### Frecuencia
+
+- Alerta: solo cuando se detecta anomalía nueva o escalada
+- Sin mensaje = "todo está bien" (no se molesta al productor innecesariamente)
+- Resumen semanal: configurable por lote (desactivado por defecto en piloto)
+
+---
+
+## 10. Dashboard web
+
+### Páginas principales
+
+| Ruta | Descripción |
+|---|---|
+| `/` | Vista general: mapa de todos los lotes con estado de alerta |
+| `/lotes` | Listado de lotes con último índice y estado |
+| `/lotes/:id` | Detalle del lote: mapa, serie temporal, historial de alertas |
+| `/lotes/nuevo` | Carga de nuevo lote (shapefile, KML o dibujado) |
+| `/alertas` | Historial completo de alertas con filtros |
+| `/configuracion` | Datos de siembra, umbrales, notificaciones |
+
+### Componentes clave
+
+- **Mapa de lotes:** Leaflet con polígonos coloreados por estado (verde / amarillo / rojo)
+- **Mapa de índice:** Tile layer de GEE exportado como PNG con escala de color
+- **Serie temporal:** Gráfico de línea (Recharts) con NDVI/NDWI histórico + línea de media
+- **Card de alerta:** Muestra el texto generado por Claude con fecha y severidad
+- **Mapa de ambientes:** Visualización del mapa categórico (Clase 1-4) del lote
+
+---
+
+## 11. Plan de desarrollo por fases
+
+### Fase 0 — Setup (semana 1)
+- [ ] Crear repositorio GitHub con estructura de carpetas
+- [ ] Configurar entorno Python (venv, dependencias)
+- [ ] Autenticación con Google Earth Engine
+- [ ] Variables de entorno y `.env.example`
+- [ ] Base de datos PostgreSQL + PostGIS (local con Docker)
+
+### Fase 1 — MVP análisis (semanas 2-3)
+- [ ] Script de ingesta GEE: dado un polígono, retornar NDVI/NDWI por fecha
+- [ ] Adaptación del script de ambientes como módulo Python importable
+- [ ] Integración Open-Meteo: dado lat/lon, retornar clima reciente
+- [ ] Lógica de detección de anomalías (z-score vs histórico)
+- [ ] Tests unitarios para cada módulo
+
+### Fase 2 — Motor de alertas (semana 4)
+- [ ] Integración Claude API
+- [ ] Construcción del prompt dinámico
+- [ ] Generación de imagen del lote (matplotlib o GEE thumbnail)
+- [ ] Integración Twilio WhatsApp: envío de texto + imagen
+- [ ] Script de prueba end-to-end para un lote hardcodeado
+
+### Fase 3 — Backend y scheduler (semanas 5-6)
+- [ ] FastAPI: endpoints CRUD de lotes, alertas, usuarios
+- [ ] Modelos de base de datos (SQLAlchemy + Alembic)
+- [ ] Celery + Redis: scheduler para análisis periódico
+- [ ] Sistema de autenticación (Supabase Auth)
+- [ ] API para carga de shapefiles/KML
+
+### Fase 4 — Dashboard web (semanas 7-9) *(segunda etapa — post MVP)*
+- [ ] Proyecto React + Vite + Tailwind
+- [ ] Mapa de lotes con Leaflet
+- [ ] Página de detalle con serie temporal (Recharts)
+- [ ] Historial de alertas
+- [ ] Formulario de carga de lote (shapefile + dibujado en mapa)
+- [ ] Formulario de datos de siembra
+- [ ] Configuración de umbrales por lote y cultivo
+
+### Fase 5 — Piloto (semana 10+)
+- [ ] Deploy backend en Railway/Render
+- [ ] Deploy frontend en Vercel
+- [ ] Cargar primeros 3-5 lotes reales
+- [ ] Monitoreo y ajuste de umbrales
+- [ ] Feedback del productor → iteración
+
+---
+
+## 12. Decisiones tomadas
+
+| # | Decisión | Resolución |
+|---|---|---|
+| 1 | ¿El scheduler corre diariamente o solo cuando GEE detecta imagen nueva sin nubes? | **B — Solo cuando GEE detecta imagen nueva sin nubes.** El scheduler consulta GEE primero; si no hay imagen nueva disponible, no procesa ese lote. Más eficiente y evita falsos análisis con datos viejos. |
+| 2 | ¿Se envía resumen semanal por lote además de alertas? | **B — Alertas reactivas + resumen semanal.** Cada lote recibirá un resumen semanal fijo (configurable en día y hora) además de las alertas cuando se detecte anomalía. |
+| 3 | ¿MVP sin dashboard o con dashboard desde el inicio? | **A — MVP primero solo con WhatsApp.** El primer entregable funcional es el pipeline de análisis + alertas por WhatsApp. El dashboard web se construye en una segunda etapa. |
+| 4 | ¿Cómo se gestiona la fenología sin fecha de siembra? | **Híbrido.** Si el productor cargó fecha de siembra y cultivo, se calcula la etapa fenológica con escala BBCH. Si no hay datos de siembra, se infiere la etapa desde la curva histórica de NDVI del lote. |
+| 5 | ¿Los umbrales de anomalía son globales o configurables por productor? | **B — Configurables por productor.** Cada productor puede ajustar los umbrales de severidad por lote y cultivo desde el dashboard. Valores por defecto globales disponibles si no se configuran. |
+
+---
+
+## 13. Glosario
+
+| Término | Definición |
+|---|---|
+| **NDVI** | Normalized Difference Vegetation Index. Mide el vigor del cultivo. Valores altos = cultivo saludable. |
+| **NDWI** | Normalized Difference Water Index. Mide el contenido de agua en la planta. Útil para estrés hídrico. |
+| **MNDWI** | Modified NDWI. Detecta agua superficial libre (inundaciones). Usado para mapear ambientes. |
+| **Ambiente** | Zona del lote con comportamiento histórico similar frente al agua. Del script de ambientes. |
+| **Fenología** | Etapas de desarrollo del cultivo (emergencia, floración, llenado de granos, etc.). |
+| **Anomalía** | Diferencia estadísticamente significativa entre el índice actual y el histórico para esa etapa. |
+| **z-score** | Medida de cuántas desviaciones estándar se aleja un valor de la media histórica. |
+| **GEE** | Google Earth Engine. Plataforma de análisis geoespacial con catálogo satelital completo. |
+| **Scheduler** | Proceso que ejecuta tareas de análisis automáticamente en intervalos de tiempo. |
+| **Lote** | Parcela agrícola delimitada por un polígono geoespacial. |
+| **Vibe coding** | Metodología de desarrollo asistido por IA donde el desarrollador describe la intención y la IA genera el código. |
+
+---
+
+*Documento generado el 2026-04-20. Decisiones de arquitectura v0.2 incorporadas. Actualizar con cada cambio de alcance.*

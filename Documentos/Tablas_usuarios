@@ -1,0 +1,223 @@
+CampoRemoto IA — Modelo de Datos por Rol
+Documento de contexto para desarrollo
+Versión: 2.0
+Uso: insertar como contexto en Cursor / Antigravity al iniciar cada sesión de vibe coding
+________________________________________
+Descripción general
+El modelo de datos está compuesto por nueve tablas. Tres tablas corresponden a los distintos tipos de usuario (usuarios_productor, usuarios_asesor, usuarios_administrador). Cuatro tablas son compartidas por todos los roles (campos, lotes, cultivos, alertas). Dos tablas son exclusivas del administrador (umbrales_indices, estado_integraciones).
+Las tablas campos, lotes y cultivos no se duplican por rol — son una única estructura de datos a la que cada usuario accede según sus permisos.
+________________________________________
+Estructura general
+usuarios_productor  ──┐
+usuarios_asesor     ──┼──▶  campos  ──▶  lotes  ──▶  cultivos
+usuarios_admin      ──┘                    │
+                                           └──▶  alertas
+                                                    │
+                                          umbrales_indices  (solo admin)
+                                          estado_integraciones  (solo admin)
+________________________________________
+Tablas de usuarios
+________________________________________
+1. usuarios_productor
+Almacena los datos del productor agropecuario. Es el usuario principal del sistema y el único que recibe alertas por WhatsApp.
+Campo	Tipo	Descripción
+id	UUID PK	Identificador único del productor
+nombre	TEXT	Nombre del productor
+apellido	TEXT	Apellido del productor
+whatsapp	TEXT	Número de WhatsApp con prefijo país — canal principal de alertas
+ubicacion_geografica	POINT	Ubicación geográfica aproximada del productor
+mail	TEXT UNIQUE	Correo electrónico — usado para login
+rol	ENUM	Valor fijo: productor
+creado_en	TIMESTAMP	Fecha y hora de registro
+Notas:
+•	whatsapp es campo obligatorio — sin él no se pueden enviar alertas.
+•	rol con valor fijo productor permite distinguir el tipo de usuario en queries unificadas.
+•	El productor es el único rol que recibe mensajes de WhatsApp del sistema.
+________________________________________
+2. usuarios_asesor
+Almacena los datos del asesor técnico (ingeniero agrónomo). Su nivel de acceso a los lotes depende del campo permisos, que es asignado por el productor al momento de la invitación.
+Campo	Tipo	Descripción
+id	UUID PK	Identificador único del asesor
+nombre	TEXT	Nombre del asesor
+apellido	TEXT	Apellido del asesor
+permisos	ENUM	Nivel de acceso asignado por el productor: edicion o visualizacion
+whatsapp	TEXT	Número de WhatsApp del asesor (no recibe alertas automáticas)
+ubicacion_geografica	POINT	Ubicación geográfica del asesor
+mail	TEXT UNIQUE	Correo electrónico — usado para login
+rol	ENUM	Valor fijo: asesor
+creado_en	TIMESTAMP	Fecha y hora de registro
+Notas:
+•	permisos = edicion: el asesor puede cargar lotes, modificar datos de cultivo y gestionar campañas.
+•	permisos = visualizacion: el asesor solo puede ver mapas, índices e historial de alertas — sin edición.
+•	El asesor nunca recibe alertas de WhatsApp. Las notificaciones siempre van al productor dueño del lote.
+•	Un asesor puede estar asignado a múltiples productores, cada uno con permisos independientes.
+________________________________________
+3. usuarios_administrador
+Almacena los datos del administrador de la plataforma. Tiene acceso completo a todos los usuarios, campos, lotes y configuración del sistema.
+Campo	Tipo	Descripción
+id	UUID PK	Identificador único del administrador
+nombre	TEXT	Nombre del administrador
+apellido	TEXT	Apellido del administrador
+whatsapp	TEXT	Número de WhatsApp del administrador (uso interno)
+mail	TEXT UNIQUE	Correo electrónico — usado para login
+rol	ENUM	Valor fijo: admin
+activo	BOOLEAN	Indica si la cuenta de admin está habilitada
+creado_en	TIMESTAMP	Fecha y hora de registro
+Notas:
+•	activo permite suspender una cuenta de admin sin eliminarla — útil para rotación de personal.
+•	El admin no recibe alertas automáticas de WhatsApp sobre lotes. Sí puede recibir notificaciones de errores del sistema.
+•	Puede crear, modificar y desactivar usuarios de cualquier rol.
+________________________________________
+Tablas compartidas
+________________________________________
+4. campos
+Representa el establecimiento agropecuario (la unidad mayor: la estancia, el campo, la empresa). Un productor puede tener múltiples campos.
+Campo	Tipo	Descripción
+id	UUID PK	Identificador único del campo
+partido	TEXT	Partido o departamento donde está ubicado el campo
+provincia	TEXT	Provincia
+id_lotes	UUID[ ]	Array de IDs de los lotes que pertenecen a este campo
+id_usuarios	UUID FK → usuarios_productor	Productor dueño del campo
+poligono	GEOMETRY	Polígono exterior del establecimiento completo
+superficie	DECIMAL	Superficie total en hectáreas — calculada desde el polígono
+activo	BOOLEAN	Indica si el campo está en monitoreo activo
+creado_en	TIMESTAMP	Fecha y hora de alta del campo
+Notas:
+•	poligono usa tipo GEOMETRY (PostGIS) para consultas espaciales y cálculo de superficie automático.
+•	id_lotes como array permite listar los lotes del campo sin JOIN en consultas simples.
+•	activo = false detiene el monitoreo satelital de todos los lotes de ese campo.
+________________________________________
+5. lotes
+Representa cada parcela o potrero dentro de un campo. Es la unidad mínima de análisis satelital — el polígono que se envía a Google Earth Engine.
+Campo	Tipo	Descripción
+id	UUID PK	Identificador único del lote
+id_cultivos	UUID FK → cultivos	Cultivo activo en este lote (campaña actual)
+id_campo	UUID FK → campos	Campo al que pertenece el lote
+ultimo_ndvi	DECIMAL	Último valor de NDVI calculado para el lote (0 a 1)
+ultima_imagen	DATE	Fecha de la última imagen satelital procesada
+poligono	GEOMETRY	Polígono exacto del lote — enviado a GEE para el análisis
+superficie	DECIMAL	Superficie del lote en hectáreas
+activo	BOOLEAN	Indica si el lote está en monitoreo activo
+creado_en	TIMESTAMP	Fecha y hora de alta del lote
+Notas:
+•	poligono es el campo más crítico de esta tabla — define exactamente qué área analiza GEE.
+•	ultimo_ndvi se actualiza automáticamente cada vez que se procesa una imagen nueva.
+•	ultima_imagen permite al admin detectar lotes sin datos recientes (posible error de GEE o nubosidad persistente).
+•	activo = false detiene el monitoreo satelital de ese lote específico sin afectar al resto del campo.
+•	La superficie se calcula automáticamente desde el polígono usando PostGIS (ST_Area).
+________________________________________
+6. cultivos
+Almacena la información agronómica de cada campaña por lote. Un lote puede tener múltiples cultivos a lo largo de los años — uno por campaña.
+Campo	Tipo	Descripción
+id	UUID PK	Identificador único del cultivo
+nombre	TEXT	Nombre descriptivo (ej: "Soja 2024/25")
+id_campo	UUID FK → campos	Campo al que pertenece
+fecha_siembra	DATE	Fecha de siembra — si se desconoce, el sistema infiere la etapa por NDVI
+fecha_cosecha_tentativa	DATE	Fecha estimada de cosecha
+riego	BOOLEAN	Indica si el lote tiene riego suplementario
+aplicaciones	JSONB	Registro de aplicaciones agroquímicas
+variedad	TEXT	Variedad o híbrido sembrado
+tipo	ENUM	Especie: soja, maiz, trigo, girasol, otro
+campaña	TEXT	Identificador de la campaña (ej: "2024/25")
+creado_en	TIMESTAMP	Fecha de carga del cultivo
+Notas:
+•	fecha_siembra puede quedar nula — en ese caso el sistema infiere la etapa fenológica desde la curva histórica de NDVI.
+•	aplicaciones usa JSONB para flexibilidad sin tabla extra. Estructura: [{"fecha": "2025-01-10", "producto": "glifosato", "dosis": "2 l/ha"}].
+•	campaña permite distinguir ciclos productivos del mismo lote en años consecutivos.
+•	tipo alimenta la lógica de umbrales — cada cultivo tiene umbrales de detección distintos por etapa.
+________________________________________
+7. alertas
+Registra cada evento de anomalía detectado por el sistema. Incluye el texto generado por el Agente IA, el estado de entrega por WhatsApp y el estado de revisión por el productor.
+Campo	Tipo	Descripción
+id	UUID PK	Identificador único de la alerta
+lote_id	UUID FK → lotes	Lote donde se detectó la anomalía
+indice	ENUM	Índice que disparó la alerta: ndvi, ndwi, mndwi
+id_condicion_cultivo	UUID FK → cultivos	Cultivo y etapa fenológica activa al momento de la alerta
+zona_afectada	TEXT	Descripción de la zona del lote afectada (del mapa de ambientes)
+wapp_enviado	BOOLEAN	Confirma si el mensaje fue enviado exitosamente por WhatsApp vía Twilio
+revisada	BOOLEAN	El productor marcó la alerta como atendida desde el dashboard
+creado_hace	TIMESTAMP	Fecha y hora de detección de la anomalía
+Notas:
+•	indice determina qué tipo de problema se detectó: caída de vigor (NDVI), estrés hídrico (NDWI) o agua superficial libre (MNDWI).
+•	id_condicion_cultivo vincula la alerta a la campaña exacta — permite reconstruir el contexto agronómico del evento.
+•	zona_afectada describe en lenguaje natural la zona del mapa de ambientes afectada (ej: "Zona 1 — sector norte, frecuentemente inundable").
+•	wapp_enviado = false indica un fallo en el envío — el admin lo detecta en el panel de integraciones y puede reintentar.
+•	revisada = true cierra el ciclo de la alerta — cambia el badge del dashboard de activo a resuelto.
+•	creado_hace es la referencia temporal que permite calcular "la anomalía comenzó hace N días" en el texto de la alerta.
+________________________________________
+Tablas exclusivas del Administrador
+________________________________________
+8. umbrales_indices
+Define los valores de detección de anomalías por cultivo. El admin configura estos valores globalmente; el productor puede sobreescribirlos para sus propios lotes.
+Campo	Tipo	Descripción
+id	UUID PK	Identificador único del registro de umbrales
+id_cultivo	UUID FK → cultivos	Cultivo al que aplican estos umbrales
+ndvi_leve	DECIMAL	Caída porcentual de NDVI que dispara alerta leve (ej: −10%)
+ndvi_moderado	DECIMAL	Caída porcentual de NDVI que dispara alerta moderada (ej: −20%)
+ndvi_severo	DECIMAL	Caída porcentual de NDVI que dispara alerta severa (ej: −30%)
+ndwi_leve	DECIMAL	Desviación de NDWI que dispara alerta leve (ej: +15%)
+ndwi_moderado	DECIMAL	Desviación de NDWI que dispara alerta moderada (ej: +30%)
+ndwi_severo	DECIMAL	Desviación de NDWI que dispara alerta severa (ej: +50%)
+creado_en	TIMESTAMP	Fecha de configuración
+actualizado_en	TIMESTAMP	Fecha de última modificación
+Notas:
+•	Los valores son porcentajes de desviación respecto a la media histórica del índice para esa etapa fenológica.
+•	Jerarquía de aplicación: umbral del lote (si el productor lo personalizó) > umbral global del admin (esta tabla).
+•	El admin puede ver en "Vista previa" cuántas alertas del último mes habrían cambiado de severidad antes de confirmar nuevos valores.
+•	Solo visible y editable por el rol admin.
+Valores por defecto sugeridos:
+Cultivo	NDVI leve	NDVI moderado	NDVI severo	NDWI leve	NDWI moderado	NDWI severo
+Soja — Floración	−10%	−20%	−30%	+15%	+30%	+50%
+Maíz — Floración	−8%	−18%	−28%	+15%	+25%	+45%
+Trigo — Encañazón	−10%	−20%	−30%	+12%	+25%	+45%
+________________________________________
+9. estado_integraciones
+Registra el estado operativo en tiempo real de cada servicio externo que usa la plataforma. Solo visible para el administrador.
+Campo	Tipo	Descripción
+id	UUID PK	Identificador único del registro
+servicio	TEXT	Nombre del servicio externo (GEE, Twilio, Claude API, Open-Meteo)
+estado	ENUM	Estado actual: operativo, degradado, error
+ultimo_evento	TIMESTAMP	Fecha y hora del último evento registrado para este servicio
+detalles_proceso	TEXT	Descripción del último proceso ejecutado o del error detectado
+accion_disponible	TEXT	Acción que el admin puede tomar (ej: "Reintentar envío", "Verificar credenciales")
+actualizado_en	TIMESTAMP	Fecha y hora de la última actualización del registro
+Notas:
+•	servicio incluye los cuatro servicios críticos: Google Earth Engine (análisis satelital), Twilio (WhatsApp), Claude API (Agente IA) y Open-Meteo (clima).
+•	estado = error activa una alerta visual en el panel del admin (badge rojo).
+•	estado = degradado indica funcionamiento parcial — por ejemplo, GEE procesando con demora pero sin fallar.
+•	accion_disponible es un campo de texto libre que guía al admin sobre qué hacer ante cada error (ej: "Reintentar envío de alt-003", "Verificar API key de GEE", "Número de WhatsApp inválido").
+•	Solo visible y editable por el rol admin.
+________________________________________
+Relaciones entre tablas
+usuarios_productor
+    └── campos  (un productor tiene muchos campos)
+          └── lotes  (un campo tiene muchos lotes)
+                ├── cultivos  (un lote tiene un cultivo activo por campaña)
+                └── alertas   (un lote acumula muchas alertas a lo largo del tiempo)
+
+usuarios_asesor
+    └── lotes  (acceso a los lotes asignados por el productor, según permisos)
+
+usuarios_administrador
+    ├── usuarios_productor   (gestión completa)
+    ├── usuarios_asesor      (gestión completa)
+    ├── campos               (acceso y modificación global)
+    ├── lotes                (acceso y modificación global)
+    ├── alertas              (historial global + gestión de fallos WhatsApp)
+    ├── umbrales_indices     (configuración exclusiva del admin)
+    └── estado_integraciones (monitoreo exclusivo del admin)
+________________________________________
+Resumen de acceso por rol
+Tabla	Productor	Asesor (edición)	Asesor (visualización)	Admin
+usuarios_productor	Solo el propio	✗	✗	✓ todos
+usuarios_asesor	Los que invitó	Solo el propio	Solo el propio	✓ todos
+usuarios_administrador	✗	✗	✗	✓
+campos	Solo los propios	Los asignados	Los asignados	✓ todos
+lotes	Solo los propios	Los asignados	Los asignados	✓ todos
+cultivos	Solo los propios	Lee + edita	Solo lectura	✓ todos
+alertas	Solo las propias	Lee	Lee	✓ todas
+umbrales_indices	✗	✗	✗	✓
+estado_integraciones	✗	✗	✗	✓
+________________________________________
+Documento generado el 2026-05-06 · CampoRemoto IA v2.0 · Modelo unificado por los tres roles de usuario.
+
