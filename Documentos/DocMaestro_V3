@@ -232,7 +232,7 @@ ________________________________________
 •	Si nubosidad o imágenes son insuficientes: el sistema registra error y suspende alertas del lote
 6.2 Modelo de ambientes históricos
 •	Genera un mapa categórico de susceptibilidad al anegamiento por lote (Clases 1 a 4)
-•	Se calcula una sola vez por lote al momento del onboarding
+•	Se calcula una sola vez para el campo  lote al momento del onboarding
 •	Se recalcula si el productor o el admin lo solicita, o automáticamente cada 2 años
 •	Se usa como contexto permanente para localizar y describir anomalías
 6.3 Inferencia fenológica
@@ -247,11 +247,12 @@ ________________________________________
 •	Comparación del índice actual vs. media histórica para esa etapa fenológica (z-score)
 •	Umbrales en tres dimensiones: índice · cultivo · etapa fenológica
 •	Jerarquía de umbrales: configuración del lote > configuración del productor > umbrales globales del admin
-•	Clasificación de severidad: leve / moderada / severa
+Clasificación de alertas cualitativas severidad: leve / moderado / severo (clasificar la severidad de acuerdo a los valores de 0 a 1, siendo 0 la peor conidicón y 1 la condición optima.
+Acá le indico que el NDVI, va de 0 a 1, y que debe ir subiendo progresivamente hasta alcanzar valores cercanos a 1 para luego ir descendiendo gradualmente, sin importar el valor absoluto, sino el comportamiento. Entonces, cada vez que el valor del índice se modifique abruptamente sin respetar este comportamiento, el sistema debe enviar un alerta indicando y que también reporte cuando la situación de la descripción de la curva es normal y responde al comportamiento esperado. 
 •	Detección de sectores afectados usando el mapa de ambientes
 6.6 Agente IA — Motor de alertas
 •	Prompt estructurado enviado a Claude API
-•	Inputs: nombre del lote, cultivo, etapa fenológica, índice afectado, severidad, días desde inicio, zona del mapa de ambientes, clima reciente
+•	Inputs: nombre del lote, cultivo, etapa fenológica, índice afectado, severidad, alerta, días desde inicio, zona del mapa de ambientes, clima reciente
 •	Output: mensaje en lenguaje natural (máx. 3 oraciones) + recomendación accionable (1 oración)
 •	El texto generado se guarda en la tabla alertas para auditoría y visualización en dashboard
 6.7 Entrega WhatsApp
@@ -325,10 +326,12 @@ para la recomendación. Usá lenguaje simple, sin tecnicismos.
 Usuario:
 Lote: {nombre_lote}
 Cultivo: {cultivo} en etapa {etapa_fenologica}
-Anomalía detectada: caída de {indice} ({valor_actual} vs media histórica {valor_historico})
+Anomalía detectada: clasificar la anomalía de acuerdo a los valores de 0 a 1, siendo 0 la peor conidicón y 1 la condición optima.
+Acá le indico que el NDVI, va de 0 a 1, y que debe ir subiendo progresivamente hasta alcanzar valores cercanos a 1 para luego ir descendiendo gradualmente, sin importar el valor absoluto, sino el comportamiento. Entonces, cada vez que el valor del índice se modifique abruptamente sin respetar este comportamiento, el sistema debe enviar un alerta indicando y que también reporte cuando la situación de la descripción de la curva es normal y responde al comportamiento esperado. 
+caída de {indice} ({valor_actual} vs media histórica {valor_historico})
 Severidad: {leve|moderada|severa}
 Días desde inicio de la anomalía: {dias}
-Zona del lote afectada: {descripcion_ambiente}
+Zona del lote afectada: {descripcion_ambiente 
 Clima reciente: {lluvia_7dias} mm en 7 días, temperatura máx {temp_max}°C
 Clasificación de severidad (umbrales globales por defecto)
 Índice	Etapa	Umbral leve	Umbral moderado	Umbral severo
@@ -337,8 +340,14 @@ NDVI	Vegetativo	−10%	−20%	−30%
 NDVI	Floración	−10%	−20%	−30%
 NDVI	Llenado	−12%	−22%	−35%
 NDWI	Todas	+15%	+30%	+50%
-Ejemplo de alerta generada
-🔴 Lote La Esperanza Tu lote presenta una caída severa de vigor en el sector norte (Zona 1), que históricamente es la más susceptible al anegamiento. La anomalía comenzó hace 6 días y coincide con el período crítico de floración de tu soja. Recomendación: Visitá el sector norte del lote antes del viernes. Se esperan lluvias que podrían agravar el anegamiento existente.
+Ejemplo de alerta generada 1
+ Lote La Esperanza El NDVI no aumento lo esperado después de la siembra.
+Recomendación: Visitá el lote antes del viernes para identificar la causa. Se esperan lluvias que podrían agravar el anegamiento existente.
+Ejemplo de alerta generada 2
+Lote La Esperanza Alerta de caída prematura: El NDVI cae fuerte antes del pico fenológico.
+Lote La Esperanza Alerta de estancamiento: El NDVI debería seguir subiendo pero se mantiene plano.
+
+
 ________________________________________
 10. Entrega por WhatsApp
 Contenido del mensaje
@@ -347,11 +356,12 @@ Contenido del mensaje
 3.	Texto de alerta (3 oraciones máximo)
 4.	Recomendación accionable (1 oración)
 5.	Imagen adjunta: mapa del lote con escala de color del índice afectado
+6.	Posibilidad de descargar el reporte.
 Frecuencia
-•	Alerta reactiva: solo cuando se detecta anomalía nueva o escalada en severidad
+•	Alerta reactiva: solo cuando se detecta anomalía nueva dentro del mismo lote o escalada en severidad
 •	Resumen semanal: día y hora configurables por el productor (default global definido por el admin)
 •	Sin mensaje = sin novedad: no se envían mensajes cuando todo está normal salvo el resumen semanal
-•	Las alertas siempre van al número del productor — nunca al asesor
+•	Las alertas siempre van al número del productor y/o al asesor, es configurable. 
 Gestión de fallos
 •	Si Twilio falla el envío: wapp_enviado = false en tabla alertas
 •	El admin ve los fallos en el panel de estado del sistema
@@ -408,6 +418,7 @@ Fase 3 — Backend y scheduler (semanas 5-6)
 •	[ ] Modelos de base de datos y migraciones
 •	[ ] Scheduler: análisis por lote activado por imagen nueva en GEE
 •	[ ] Lógica de permisos por rol (productor / asesor con permisos / asesor sin permisos / admin)
+•	[ ] API para carga de shapefiles y KML
 Fase 4 — Dashboard web (semanas 7-10) (segunda etapa — post MVP)
 •	[ ] Vistas del Productor: dashboard, lotes, detalle, alertas, reportes, asesores, configuración
 •	[ ] Vistas del Asesor: dashboard restringido, detalle de lotes asignados
@@ -453,52 +464,3 @@ Vibe coding	Metodología de desarrollo asistido por IA donde el desarrollador de
 ________________________________________
 Documento actualizado el 2026-05-06 · Versión 0.4 · Tres tipos de usuario incorporados con recorridos completos.
 
-
-Ahora te hago algunas aclaraciones respecto al punto 5
-
-5.5 del documento maestro. No uso zonificación de ambientes, uso loteo.
-Corregir en el documento maestro:
-En referencia a los puntos 5 y 8.
-5. Módulos funcionales
-5.1 Ingesta y procesamiento satelital
-•	Conexión a Google Earth Engine via Python API
-•	Descarga de imágenes Landsat 8/9 y Sentinel-2 para cada lote
-•	Generación de mosaicos por fecha (cloud-free composites)
-•	Filtrado de nubes y sombras
-•	Cálculo de índices: NDVI, NDWI, MNDWI
-•	Extracción de estadísticas por lote de acuerdo a la cantidad de datos propias del lote (media, desviación, percentiles)
-5.2 Modelo de ambientes históricos
-•	A partir del Basado en el script de ambientes y el script de NDVI y NDWI (ver sección 8)
-•	Genera un mapa categórico de susceptibilidad al anegamiento por lote
-•	Se calcula una sola vez por lote (o se actualiza estacionalmente)
-•	Se usa como contexto permanente para interpretar eventos actuales
-5.3 Inferencia fenológica 
-•	Si el productor cargó fecha de siembra y cultivo: se calcula la etapa fenológica automáticamente (escala BBCH)
-•	Si no hay datos: se infiere desde la curva de NDVI histórica del lote
-•	La etapa fenológica determina qué es "normal" vs "anómalo" para ese índice en ese momento
-5.4 Integración climática
-•	API: Open-Meteo (gratuita, sin key) o NASA POWER
-•	Datos obtenidos: precipitación acumulada 7 días, temperatura máx/mín, ETo
-•	Se cruza automáticamente al momento de generar la alerta
-5.5 Detección de anomalías
-•	Comparación del índice actual vs. media histórica (del lote), si tiene datos históricos. para esa etapa fenológica (z-score)
-•	Umbrales configurables por cultivo y etapa ¿???
-•	Clasificación de severidad: leve / moderado / severo (clasificar la severidad de acuerdo a los valores de 0 a 1, siendo 0 la peor conidicón y 1 la condición optima.
-•	Detección de sectores afectados dentro del lote (usando la zonificación de ambientes)
-5.6 Motor de alertas IA
-•	Prompt estructurado enviado a Claude API (claude-sonnet-4-20250514)
-•	Inputs: nombre del lote, cultivo, etapa fenológica, índice afectado, severidad, días desde inicio, contexto del ambiente, clima reciente
-•	Output: mensaje en lenguaje natural + recomendación accionable
-•	Máximo 3 oraciones para el mensaje, 1 oración para la recomendación
-5.7 Entrega WhatsApp
-•	Canal: Twilio WhatsApp Business API
-•	Contenido del mensaje: texto de alerta + imagen del lote (mapa de índice con escala de color)
-•	Frecuencia: solo cuando hay anomalía detectada (no mensajes de "todo bien")
-•	Resumen semanal opcional por lote (configurable)
-5.8 Dashboard web
-•	Vista de mapa con todos los lotes del usuario
-•	Selector de índice (NDVI / NDWI / Ambientes)
-•	Serie temporal de índices por lote (gráfico de línea)
-•	Historial de alertas con estado (activa / resuelta)
-•	Carga de lotes (shapefile, KML o dibujado en mapa)
-•	Carga de datos de siembra (cultivo, fecha, variedad)

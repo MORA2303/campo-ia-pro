@@ -135,10 +135,10 @@ export const ndviSerie = (() => {
 })();
 
 export const severityLabel: Record<Severity, string> = {
-  none: "Sin anomalía",
-  low: "Alerta leve",
-  mid: "Alerta moderada",
-  high: "Alerta severa",
+  none: "SIN ANOMALÍA",
+  low: "ALERTA",
+  mid: "ALERTA",
+  high: "ALERTA",
 };
 
 export const severityColor: Record<Severity, string> = {

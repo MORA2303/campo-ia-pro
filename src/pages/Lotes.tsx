@@ -2,14 +2,23 @@ import { useState } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Plus } from "lucide-react";
-import { lotes, severityColor } from "@/data/mock";
+import { severityColor } from "@/data/mock";
 import { SeverityBadge } from "@/components/SeverityBadge";
+import { useQuery } from "@tanstack/react-query";
+import { getLotes } from "@/lib/api";
 import { useNavigate } from "react-router-dom";
 import { AddLoteDialog } from "@/components/AddLoteDialog";
+import { useAuth } from "@/context/AuthContext";
 
 export default function Lotes() {
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
+  const { role } = useAuth();
+
+  const { data: lotes = [], isLoading, error } = useQuery({
+    queryKey: ['lotes'],
+    queryFn: getLotes
+  });
 
   return (
     <div className="space-y-6">
@@ -18,13 +27,22 @@ export default function Lotes() {
           <h1 className="text-2xl font-semibold tracking-tight md:text-3xl">Mis lotes</h1>
           <p className="text-sm text-muted-foreground">{lotes.length} lotes monitoreados</p>
         </div>
-        <Button onClick={() => setOpen(true)}>
-          <Plus className="mr-1 h-4 w-4" /> Agregar lote
-        </Button>
+        {role !== "asesor" && (
+          <Button onClick={() => setOpen(true)}>
+            <Plus className="mr-1 h-4 w-4" /> Agregar lote
+          </Button>
+        )}
       </div>
 
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
-        {lotes.map((lote) => (
+      {isLoading ? (
+        <div className="flex justify-center p-12">
+          <div className="h-8 w-8 animate-spin rounded-full border-b-2 border-primary"></div>
+        </div>
+      ) : error ? (
+        <div className="p-6 text-center text-red-500">Error al cargar lotes: {(error as Error).message}</div>
+      ) : (
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
+          {lotes.map((lote) => (
           <Card key={lote.id} className="overflow-hidden transition-shadow hover:shadow-md">
             <CardContent className="space-y-4 p-5">
               <div className="flex items-start justify-between gap-2">
@@ -62,7 +80,8 @@ export default function Lotes() {
             </CardContent>
           </Card>
         ))}
-      </div>
+        </div>
+      )}
 
       <AddLoteDialog open={open} onOpenChange={setOpen} />
     </div>

@@ -1,12 +1,15 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { AlertTriangle, ChevronLeft, ChevronRight } from "lucide-react";
-import { alertas, lotes, severityColor } from "@/data/mock";
+import { severityColor, Lote } from "@/data/mock";
+import { getSavedLotes } from "@/utils/loteStorage";
 import { SeverityBadge } from "@/components/SeverityBadge";
 import { Link } from "react-router-dom";
 import { cn } from "@/lib/utils";
+import { useQuery } from "@tanstack/react-query";
+import { getAllAlertas } from "@/lib/api";
 
 type Filtro = "todas" | "activas" | "resueltas";
 
@@ -14,7 +17,25 @@ export default function Alertas() {
   const [filtro, setFiltro] = useState<Filtro>("todas");
   const [loteFiltro, setLoteFiltro] = useState<string>("all");
   const [page, setPage] = useState(1);
+  const [lotesList, setLotesList] = useState<Lote[]>([]);
   const perPage = 5;
+
+  const { data: alertas = [], isLoading } = useQuery({
+    queryKey: ['alertas'],
+    queryFn: getAllAlertas
+  });
+
+  const loadLotes = () => {
+    setLotesList(getSavedLotes());
+  };
+
+  useEffect(() => {
+    loadLotes();
+    window.addEventListener("lotesUpdated", loadLotes);
+    return () => {
+      window.removeEventListener("lotesUpdated", loadLotes);
+    };
+  }, []);
 
   const filtradas = useMemo(() => {
     return alertas.filter((a) => {
@@ -23,7 +44,7 @@ export default function Alertas() {
       if (loteFiltro !== "all" && a.loteId !== loteFiltro) return false;
       return true;
     });
-  }, [filtro, loteFiltro]);
+  }, [alertas, filtro, loteFiltro]);
 
   const totalPages = Math.max(1, Math.ceil(filtradas.length / perPage));
   const visible = filtradas.slice((page - 1) * perPage, page * perPage);
@@ -55,60 +76,68 @@ export default function Alertas() {
           <SelectTrigger className="w-full md:w-[220px]"><SelectValue placeholder="Filtrar por lote" /></SelectTrigger>
           <SelectContent>
             <SelectItem value="all">Todos los lotes</SelectItem>
-            {lotes.map((l) => <SelectItem key={l.id} value={l.id}>{l.nombre}</SelectItem>)}
+            {lotesList.map((l) => <SelectItem key={l.id} value={l.id}>{l.nombre}</SelectItem>)}
           </SelectContent>
         </Select>
       </div>
 
-      <Card>
-        <CardContent className="p-0">
-          <ol className="relative">
-            {visible.length === 0 && (
-              <li className="p-8 text-center text-sm text-muted-foreground">No hay alertas que coincidan con los filtros.</li>
-            )}
-            {visible.map((a, idx) => (
-              <li key={a.id} className="relative flex gap-4 border-b p-5 last:border-b-0">
-                <div className="relative flex flex-col items-center">
-                  <div
-                    className="z-10 flex h-9 w-9 items-center justify-center rounded-full"
-                    style={{ backgroundColor: severityColor[a.severity] + "33", color: severityColor[a.severity] }}
-                  >
-                    <AlertTriangle className="h-4 w-4" />
-                  </div>
-                  {idx < visible.length - 1 && <div className="absolute top-9 h-full w-px bg-border" />}
-                </div>
-                <div className="flex-1 space-y-1">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Link to={`/lotes/${a.loteId}`} className="font-medium text-primary hover:underline">{a.loteNombre}</Link>
-                    <SeverityBadge severity={a.severity} />
-                    <span className={cn("text-xs font-medium", a.estado === "Activa" ? "text-severity-high" : "text-muted-foreground")}>
-                      {a.estado}
-                    </span>
-                  </div>
-                  <p className="text-sm font-medium">{a.tipo}</p>
-                  <p className="text-sm text-muted-foreground">{a.descripcion}</p>
-                  <p className="text-xs text-muted-foreground">{a.fecha}</p>
-                </div>
-              </li>
-            ))}
-          </ol>
-        </CardContent>
-      </Card>
-
-      <div className="flex items-center justify-between">
-        <p className="text-xs text-muted-foreground">
-          Mostrando {visible.length} de {filtradas.length} alertas
-        </p>
-        <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" disabled={page === 1} onClick={() => setPage((p) => p - 1)}>
-            <ChevronLeft className="h-4 w-4" />
-          </Button>
-          <span className="text-sm">{page} / {totalPages}</span>
-          <Button variant="outline" size="sm" disabled={page === totalPages} onClick={() => setPage((p) => p + 1)}>
-            <ChevronRight className="h-4 w-4" />
-          </Button>
+      {isLoading ? (
+        <div className="flex justify-center p-12">
+          <div className="h-8 w-8 animate-spin rounded-full border-b-2 border-primary"></div>
         </div>
-      </div>
+      ) : (
+        <>
+          <Card>
+            <CardContent className="p-0">
+              <ol className="relative">
+                {visible.length === 0 && (
+                  <li className="p-8 text-center text-sm text-muted-foreground">No hay alertas que coincidan con los filtros.</li>
+                )}
+                {visible.map((a, idx) => (
+                  <li key={a.id} className="relative flex gap-4 border-b p-5 last:border-b-0">
+                    <div className="relative flex flex-col items-center">
+                      <div
+                        className="z-10 flex h-9 w-9 items-center justify-center rounded-full"
+                        style={{ backgroundColor: severityColor[a.severity] + "33", color: severityColor[a.severity] }}
+                      >
+                        <AlertTriangle className="h-4 w-4" />
+                      </div>
+                      {idx < visible.length - 1 && <div className="absolute top-9 h-full w-px bg-border" />}
+                    </div>
+                    <div className="flex-1 space-y-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Link to={`/lotes/${a.loteId}`} className="font-medium text-primary hover:underline">{a.loteNombre}</Link>
+                        <SeverityBadge severity={a.severity} />
+                        <span className={cn("text-xs font-medium", a.estado === "Activa" ? "text-severity-high" : "text-muted-foreground")}>
+                          {a.estado}
+                        </span>
+                      </div>
+                      <p className="text-sm font-medium">{a.tipo}</p>
+                      <p className="text-sm text-muted-foreground">{a.descripcion}</p>
+                      <p className="text-xs text-muted-foreground">{a.fecha}</p>
+                    </div>
+                  </li>
+                ))}
+              </ol>
+            </CardContent>
+          </Card>
+
+          <div className="flex items-center justify-between">
+            <p className="text-xs text-muted-foreground">
+              Mostrando {visible.length} de {filtradas.length} alertas
+            </p>
+            <div className="flex items-center gap-2">
+              <Button variant="outline" size="sm" disabled={page === 1} onClick={() => setPage((p) => p - 1)}>
+                <ChevronLeft className="h-4 w-4" />
+              </Button>
+              <span className="text-sm">{page} / {totalPages}</span>
+              <Button variant="outline" size="sm" disabled={page === totalPages} onClick={() => setPage((p) => p + 1)}>
+                <ChevronRight className="h-4 w-4" />
+              </Button>
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }

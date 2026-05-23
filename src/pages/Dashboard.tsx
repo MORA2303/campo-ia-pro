@@ -1,33 +1,85 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { MapPin, Bell, CheckCircle2, Satellite, ArrowRight } from "lucide-react";
+import { MapPin, Bell, CheckCircle2, Satellite, ArrowRight, AlertTriangle } from "lucide-react";
 import { MapaLotes } from "@/components/MapaLotes";
-import { lotes, alertas } from "@/data/mock";
 import { SeverityBadge } from "@/components/SeverityBadge";
+import { useQuery } from "@tanstack/react-query";
+import { getLotes, getAllAlertas } from "@/lib/api";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { Link } from "react-router-dom";
-
-const kpis = [
-  { label: "Total de lotes", value: "8", icon: MapPin, color: "text-primary" },
-  { label: "Alertas activas", value: "3", icon: Bell, color: "text-severity-high" },
-  { label: "Lotes sin anomalías", value: "5", icon: CheckCircle2, color: "text-severity-none" },
-  { label: "Última imagen procesada", value: "hace 2 días", icon: Satellite, color: "text-accent" },
-];
+import { useAuth } from "@/context/AuthContext";
 
 export default function Dashboard() {
+  const { user } = useAuth();
+  const { data: lotes = [], isLoading: loadingLotes } = useQuery({ queryKey: ['lotes'], queryFn: getLotes });
+  const { data: alertas = [], isLoading: loadingAlertas } = useQuery({ queryKey: ['alertas'], queryFn: getAllAlertas });
+
   const today = new Date().toLocaleDateString("es-AR", {
     weekday: "long", day: "numeric", month: "long", year: "numeric",
   });
+  
   const recentAlertas = alertas.slice(0, 5);
+  const isLoading = loadingLotes || loadingAlertas;
+
+  const getGreeting = () => {
+    const hour = new Date().getHours();
+    const name = user ? user.nombre.split(" ")[0] : "Usuario";
+    if (hour >= 6 && hour < 12) {
+      return `Buenos días, ${name} 🌱`;
+    } else if (hour >= 12 && hour < 20) {
+      return `Buenas tardes, ${name} ☀️`;
+    } else {
+      return `Buenas noches, ${name} 🌙`;
+    }
+  };
+
+  const kpis = [
+    { label: "Total de lotes", value: lotes.length.toString(), icon: MapPin, color: "text-primary" },
+    { label: "Alertas activas", value: alertas.filter(a => a.estado === "Activa").length.toString(), icon: Bell, color: "text-severity-high" },
+    { label: "Lotes sin anomalías", value: lotes.filter(l => l.severity === "none").length.toString(), icon: CheckCircle2, color: "text-severity-none" },
+    { label: "Última imagen procesada", value: "Hoy", icon: Satellite, color: "text-accent" },
+  ];
+
+  if (isLoading) {
+    return <div className="flex justify-center p-12"><div className="h-8 w-8 animate-spin rounded-full border-b-2 border-primary"></div></div>;
+  }
 
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight md:text-3xl">Buen día, Juan 🌱</h1>
+          <h1 className="text-2xl font-semibold tracking-tight md:text-3xl">{getGreeting()}</h1>
           <p className="text-sm text-muted-foreground">Resumen de tus campos al día de hoy</p>
         </div>
         <p className="text-sm capitalize text-muted-foreground">{today}</p>
+      </div>
+
+      {/* Telegram Notification Send Failure Banner */}
+      <div className="relative overflow-hidden rounded-xl border border-destructive/20 bg-destructive/5 p-4 text-destructive backdrop-blur-sm transition-all duration-200 hover:border-destructive/35 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+        {/* Subtle background glow */}
+        <div className="absolute -right-16 -top-16 h-32 w-32 rounded-full bg-destructive/10 blur-3xl pointer-events-none" />
+        
+        <div className="flex items-start gap-3">
+          <div className="rounded-lg bg-destructive/10 p-2 text-destructive mt-0.5 sm:mt-0">
+            <AlertTriangle className="h-5 w-5 animate-pulse" />
+          </div>
+          <div>
+            <h4 className="font-semibold text-sm leading-none flex items-center gap-1.5 text-red-500">
+              Fallo de envío en notificación por Telegram
+            </h4>
+            <p className="text-xs text-muted-foreground mt-1.5 leading-relaxed max-w-2xl">
+              Se detectó un fallo al intentar difundir la última anomalía del lote <strong>La Esperanza</strong> al canal de administración (<strong>@AgroAdmin_Bot</strong>). Error: <code>ChatNotFound (HTTP 400)</code>. Por favor, verificá que el bot de Telegram esté agregado como administrador en tu canal de difusión.
+            </p>
+          </div>
+        </div>
+        
+        <div className="flex items-center gap-2 shrink-0 self-end sm:self-center">
+          <Button variant="outline" size="sm" asChild className="h-8 border-destructive/25 text-destructive bg-transparent hover:bg-destructive/10 hover:text-destructive">
+            <Link to="/configuracion">
+              Configurar Canal
+            </Link>
+          </Button>
+        </div>
       </div>
 
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
@@ -93,6 +145,9 @@ export default function Dashboard() {
                   </TableCell>
                 </TableRow>
               ))}
+              {recentAlertas.length === 0 && (
+                <TableRow><TableCell colSpan={5} className="text-center text-sm text-muted-foreground">No hay alertas recientes.</TableCell></TableRow>
+              )}
             </TableBody>
           </Table>
         </CardContent>
