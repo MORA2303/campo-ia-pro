@@ -1,0 +1,67 @@
+# Estructura de la Tabla `indices_satelitales`
+
+Esta tabla es fundamental en el núcleo del procesamiento agronómico. Actúa como la **memoria histórica** del vigor y el estado hídrico de cada lote, permitiendo realizar comparaciones estadísticas para detectar anomalías de forma proactiva.
+
+---
+
+## 📋 Especificación de Columnas
+
+| Columna | Tipo de Dato | Restricción | Descripción |
+| :--- | :--- | :--- | :--- |
+| `id` | `UUID` | `PRIMARY KEY`, Default `gen_random_uuid()` | Identificador único del registro satelital. |
+| `lote_id` | `UUID` | `FOREIGN KEY` → `lotes(id)` `ON DELETE CASCADE` | Lote al que pertenecen los índices calculados. |
+| `fecha_imagen` | `DATE` | `NOT NULL` | Fecha de captura de la imagen satelital por el satélite. |
+| `satelite` | `TEXT` | `NOT NULL` | Satélite de origen de la imagen (ej: `'Sentinel-2'`, `'Landsat-8'`). |
+| `ndvi_media` | `NUMERIC` | `NOT NULL` | Media aritmética del NDVI en el lote (valores entre `0` y `1`). |
+| `ndvi_p10` | `NUMERIC` | `NOT NULL` | Percentil 10 de NDVI. Clave para detectar manchones de estrés antes de que afecte a la media. |
+| `ndwi_media` | `NUMERIC` | `NOT NULL` | Media aritmética del NDWI (estrés hídrico, valores entre `-1` y `1`). |
+| `mndwi_media` | `NUMERIC` | `NOT NULL` | Media del MNDWI (detector de agua libre en superficie/anegamiento). |
+| `nubosidad_pct` | `NUMERIC` | `NOT NULL` | Porcentaje de nubosidad reportado sobre el lote (usualmente `< 20%`). |
+| `procesado_en` | `TIMESTAMP WITH TIME ZONE` | `DEFAULT now()` | Fecha y hora en la que se calculó e ingresó el registro. |
+
+---
+
+## 🛠️ Script SQL para Supabase (SQL Editor)
+
+Copia y ejecuta el siguiente script en la pestaña **SQL Editor** de tu consola de Supabase para crear la tabla de forma automática, configurar la clave foránea e indexar los datos para consultas ultra rápidas.
+
+```sql
+-- 1. Crear la tabla indices_satelitales
+CREATE TABLE IF NOT EXISTS public.indices_satelitales (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    lote_id UUID NOT NULL REFERENCES public.lotes(id) ON DELETE CASCADE,
+    fecha_imagen DATE NOT NULL,
+    satelite TEXT NOT NULL,
+    ndvi_media NUMERIC NOT NULL,
+    ndvi_p10 NUMERIC NOT NULL,
+    ndwi_media NUMERIC NOT NULL,
+    mndwi_media NUMERIC NOT NULL,
+    nubosidad_pct NUMERIC NOT NULL,
+    procesado_en TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
+-- 2. Crear índices de rendimiento (Queries optimizadas)
+-- Indexamos lote_id ya que las consultas siempre buscarán la historia de un lote específico.
+CREATE INDEX IF NOT EXISTS idx_indices_satelitales_lote_id 
+ON public.indices_satelitales(lote_id);
+
+-- Indexamos la fecha de la imagen para ordenamientos cronológicos o búsquedas por rango de fecha rápidos.
+CREATE INDEX IF NOT EXISTS idx_indices_satelitales_fecha_imagen 
+ON public.indices_satelitales(fecha_imagen DESC);
+
+-- Indexamos de forma compuesta para obtener al instante el último registro satelital de un lote.
+CREATE INDEX IF NOT EXISTS idx_indices_satelitales_lote_fecha
+ON public.indices_satelitales(lote_id, fecha_imagen DESC);
+
+-- 3. Agregar comentarios descriptivos a las columnas (Buenas prácticas en PostgreSQL)
+COMMENT ON TABLE public.indices_satelitales IS 'Historial de índices espectrales calculados por GEE para cada lote.';
+COMMENT ON COLUMN public.indices_satelitales.id IS 'Identificador único del registro.';
+COMMENT ON COLUMN public.indices_satelitales.lote_id IS 'Referencia al lote analizado.';
+COMMENT ON COLUMN public.indices_satelitales.fecha_imagen IS 'Fecha de la toma satelital.';
+COMMENT ON COLUMN public.indices_satelitales.satelite IS 'Satélite sensor de origen (ej: Sentinel-2).';
+COMMENT ON COLUMN public.indices_satelitales.ndvi_media IS 'Vigor promedio de la vegetación (0 a 1).';
+COMMENT ON COLUMN public.indices_satelitales.ndvi_p10 IS 'Vigor de la zona más deprimida del lote (Percentil 10).';
+COMMENT ON COLUMN public.indices_satelitales.ndwi_media IS 'Humedad promedio de la vegetación (-1 a 1).';
+COMMENT ON COLUMN public.indices_satelitales.mndwi_media IS 'Presencia de agua libre/anegamientos.';
+COMMENT ON COLUMN public.indices_satelitales.nubosidad_pct IS 'Porcentaje de nubes que cubrían el lote.';
+COMMENT ON COLUMN public.indices_satelitales.procesado_en IS 'Momento de inserción y cómputo de la fila.';
