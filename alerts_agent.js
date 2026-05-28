@@ -161,101 +161,16 @@ async function runAnalysisPipeline() {
           continue;
         }
 
-        console.log(`👤 Productor: ${productor.nombre} ${productor.apellido} | WhatsApp: ${productor.whatsapp}`);
+        console.log(`👤 Productor: ${productor.nombre} ${productor.apellido}`);
 
-        // G. Redactar Alertas Personalizadas con Claude (Tono Productor y Tono Asesor)
-        const severidadText = desviacionPct <= -30.0 ? 'severa' : 'moderada';
-        
-        let textoProductor = `⚠️ Alerta en tu lote *${cultivoNombre}* (${cultivoTipo}). El vigor del cultivo muestra una caída del ${Math.abs(desviacionPct).toFixed(0)}% debido a la falta de agua y calor de 31°C. Te recomendamos verificar el suelo del sector norte hoy.`;
-        let textoAsesor = `🚨 ANOMALÍA ESPECTRAL DETECTADA en lote *${cultivoNombre}* (${cultivoTipo}, etapa Vegetativa).\n` +
-                           `NDVI actual: ${ndviActual.toFixed(2)} (media: ${ndviHistorico.toFixed(2)}, desv: ${desviacionPct.toFixed(2)}%).\n` +
-                           `Precipitación acumulada: ${lluviaAcumulada.toFixed(1)}mm en 7 días, temperatura max: ${tempMax.toFixed(1)}°C.\n` +
-                           `Diagnóstico probable: Estrés hídrico en sector norte (Clase 1). Se aconseja visita física.`;
-
-        // Llamar a Claude si está disponible
-        if (claudeApiKey && !claudeApiKey.startsWith('sk-ant-xxxxx')) {
-          console.log('🤖 Solicitando redacción inteligente a Claude API...');
-          try {
-            // Generación de mensaje para Productor (Coloquial)
-            const prodPrompt = `Escribe un mensaje de WhatsApp de alerta agrícola amigable para el productor ${productor.nombre}. 
-Lote: ${cultivoNombre} (${cultivoTipo}).
-Anomalía: Caída de vigor de ${Math.abs(desviacionPct).toFixed(0)}%.
-Clima reciente: ${lluviaAcumulada.toFixed(1)}mm de lluvia, calor de ${tempMax.toFixed(1)}°C.
-Reglas: Tono cercano, sin tecnicismos ni números de NDVI crudos, máximo 3 oraciones, recomienda ir a verificar.`;
-
-            const resProd = await fetch('https://api.anthropic.com/v1/messages', {
-              method: 'POST',
-              headers: {
-                'x-api-key': claudeApiKey,
-                'anthropic-version': '2023-06-01',
-                'content-type': 'application/json'
-              },
-              body: JSON.stringify({
-                model: 'claude-3-5-sonnet-20241022',
-                max_tokens: 300,
-                messages: [{ role: 'user', content: prodPrompt }]
-              })
-            });
-
-            if (resProd.ok) {
-              const dataProd = await resProd.json();
-              textoProductor = dataProd.content[0].text;
-            }
-
-            // Generación de mensaje para Asesor (Técnico)
-            const asesorPrompt = `Escribe una alerta agronómica sumamente técnica para el asesor agrónomo a cargo.
-Lote: ${cultivoNombre} (${cultivoTipo}).
-Datos: NDVI actual ${ndviActual.toFixed(2)} frente a media ${ndviHistorico.toFixed(2)} (Desviación: ${desviacionPct.toFixed(2)}%).
-Clima: Lluvia 7 días acumulada ${lluviaAcumulada.toFixed(1)}mm, Máxima ${tempMax.toFixed(1)}°C.
-Reglas: Lenguaje técnico, usa siglas NDVI, NDWI, menciona z-scores o percentiles de vigor, máximo 3 oraciones.`;
-
-            const resAsesor = await fetch('https://api.anthropic.com/v1/messages', {
-              method: 'POST',
-              headers: {
-                'x-api-key': claudeApiKey,
-                'anthropic-version': '2023-06-01',
-                'content-type': 'application/json'
-              },
-              body: JSON.stringify({
-                model: 'claude-3-5-sonnet-20241022',
-                max_tokens: 300,
-                messages: [{ role: 'user', content: asesorPrompt }]
-              })
-            });
-
-            if (resAsesor.ok) {
-              const dataAsesor = await resAsesor.json();
-              textoAsesor = dataAsesor.content[0].text;
-            }
-          } catch (claudeErr) {
-            console.warn('Claude API no disponible o error en request. Utilizando redactores agronómicos de fallback.');
-          }
-        }
-
-        // H. Enviar WhatsApp al Productor (Twilio)
-        let prodWappEnviado = false;
-        if (productor.whatsapp) {
-          console.log(`📲 Enviando WhatsApp a Productor: ${productor.whatsapp} ...`);
-          prodWappEnviado = await enviarMensajeWhatsApp(productor.whatsapp, textoProductor);
-        }
-
-        // H2. Enviar Notificación a Telegram (Canal/Grupo de Monitoreo)
-        let telegramEnviado = false;
-        const telegramChatId = process.env.VITE_TELEGRAM_CHAT_ID || process.env.TELEGRAM_CHAT_ID || '@AgroAdmin_Bot'; // Fallback a la advertencia del banner
-        if (telegramChatId) {
-          console.log(`📢 Enviando Alerta a Canal de Telegram: ${telegramChatId} ...`);
-          telegramEnviado = await enviarMensajeTelegram(telegramChatId, textoAsesor);
-        }
-
-        // I. Identificar Asesores Autorizados para este Lote
-        const { data: laLink, error: laErr } = await supabase
+        // G. Recopilar Asesores Autorizados para este Lote
+        const asesoresAutorizados = [];
+        const { data: laLink } = await supabase
           .from('lotes_asesores')
           .select('asesor_id')
           .eq('lote_id', lote.id);
 
-        let asesorMensajeStatus = 'Sin asesores autorizados';
         if (laLink && laLink.length > 0) {
-          console.log(`👨‍🌾 Se encontraron ${laLink.length} asesores asignados. Validando autorización...`);
           for (const link of laLink) {
             const { data: asesor } = await supabase
               .from('usuarios_productor')
@@ -263,13 +178,95 @@ Reglas: Lenguaje técnico, usa siglas NDVI, NDWI, menciona z-scores o percentile
               .eq('id', link.asesor_id)
               .single();
 
-            if (asesor && asesor.rol === 'asesor' && asesor.whatsapp) {
-              console.log(`📲 El Productor autorizó al Asesor ${asesor.nombre} ${asesor.apellido}. Despachando alerta técnica a ${asesor.whatsapp}...`);
-              const wappAsesorEnviado = await enviarMensajeWhatsApp(asesor.whatsapp, textoAsesor);
-              if (wappAsesorEnviado) {
-                asesorMensajeStatus = `Enviado con éxito a Asesor ${asesor.nombre}`;
-              }
+            if (asesor && asesor.rol === 'asesor') {
+              asesoresAutorizados.push({
+                nombre: `${asesor.nombre} ${asesor.apellido}`,
+                whatsapp: asesor.whatsapp,
+                mail: asesor.mail
+              });
             }
+          }
+        }
+
+        // H. Construir Payload Estructurado para el workflow de n8n
+        const n8nPayload = {
+          lote_id: lote.id,
+          lote_nombre: cultivoNombre,
+          cultivo_tipo: cultivoTipo,
+          etapa_fenologica: 'Fase Vegetativa',
+          ndvi_actual: ndviActual,
+          ndvi_historico: ndviHistorico,
+          desviacion_pct: desviacionPct,
+          clima: {
+            lluvia_acumulada_7dias: lluviaAcumulada,
+            temp_max: tempMax
+          },
+          productor: {
+            nombre: `${productor.nombre} ${productor.apellido}`,
+            whatsapp: productor.whatsapp,
+            mail: productor.mail
+          },
+          asesores: asesoresAutorizados
+        };
+
+        console.log(`🤖 Enviando payload agronómico estructurado al Webhook de n8n...`);
+        console.log(`🔌 Payload JSON:\n`, JSON.stringify(n8nPayload, null, 2));
+
+        // Textos de contingencia por si n8n no retorna texto o está offline
+        let textoProductor = `⚠️ Alerta en tu lote *${cultivoNombre}* (${cultivoTipo}). El vigor del cultivo muestra una caída del ${Math.abs(desviacionPct).toFixed(0)}% debido a la falta de agua y calor de ${tempMax.toFixed(1)}°C. Te recomendamos verificar el suelo del sector norte hoy.`;
+        let textoAsesor = `🚨 ANOMALÍA ESPECTRAL DETECTADA en lote *${cultivoNombre}* (${cultivoTipo}, etapa Vegetativa).\n` +
+                           `NDVI actual: ${ndviActual.toFixed(2)} (media: ${ndviHistorico.toFixed(2)}, desv: ${desviacionPct.toFixed(2)}%).\n` +
+                           `Precipitación acumulada: ${lluviaAcumulada.toFixed(1)}mm en 7 días, temperatura max: ${tempMax.toFixed(1)}°C.\n` +
+                           `Diagnóstico probable: Estrés hídrico en sector norte (Clase 1). Se aconseja visita física.`;
+
+        // Llamar al webhook de n8n
+        const n8nWebhookUrl = process.env.VITE_N8N_ALERTAS_WEBHOOK_URL || 'http://localhost:5678/webhook/alertas';
+        let n8nExitoso = false;
+
+        try {
+          const n8nResponse = await fetch(n8nWebhookUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(n8nPayload)
+          });
+
+          if (n8nResponse.ok) {
+            console.log('✅ Webhook de n8n disparado con éxito!');
+            n8nExitoso = true;
+            try {
+              const resData = await n8nResponse.json();
+              if (resData && (resData.texto_productor || resData.texto_ia)) {
+                textoProductor = resData.texto_productor || resData.texto_ia;
+                textoAsesor = resData.texto_asesor || textoAsesor;
+                console.log('📥 Textos redactados cargados desde el workflow de n8n.');
+              }
+            } catch (e) {
+              console.log('ℹ️ n8n no retornó textos (comportamiento estándar si n8n maneja los envíos). Usando fallbacks locales para base de datos.');
+            }
+          } else {
+            console.warn(`⚠️ n8n respondió con error (${n8nResponse.status}). Usando fallbacks locales.`);
+          }
+        } catch (n8nErr) {
+          console.warn('⚠️ Webhook de n8n no disponible o servidor fuera de línea. Corriendo simulador de contingencia.');
+        }
+
+        // I. Despachar mensajes (Twilio WhatsApp / Telegram / Mocks)
+        let prodWappEnviado = false;
+        if (productor.whatsapp) {
+          console.log(`📲 [WhatsApp] Despachando mensaje a Productor: ${productor.whatsapp} ...`);
+          prodWappEnviado = await enviarMensajeWhatsApp(productor.whatsapp, textoProductor);
+        }
+
+        const telegramChatId = process.env.VITE_TELEGRAM_CHAT_ID || process.env.TELEGRAM_CHAT_ID || '@AgroAdmin_Bot';
+        if (telegramChatId) {
+          console.log(`📢 [Telegram] Despachando mensaje técnico a ${telegramChatId} ...`);
+          await enviarMensajeTelegram(telegramChatId, textoAsesor);
+        }
+
+        for (const asesor of asesoresAutorizados) {
+          if (asesor.whatsapp) {
+            console.log(`📲 [WhatsApp] Despachando mensaje a Asesor Autorizado: ${asesor.whatsapp} ...`);
+            await enviarMensajeWhatsApp(asesor.whatsapp, textoAsesor);
           }
         }
 
@@ -280,7 +277,7 @@ Reglas: Lenguaje técnico, usa siglas NDVI, NDWI, menciona z-scores o percentile
             lote_id: lote.id,
             indice: 'ndvi',
             id_condicion_cultivo: lote.id_cultivos,
-            zona_afectada: textoProductor, // Guardamos el texto principal de productor
+            zona_afectada: textoProductor, 
             wapp_enviado: prodWappEnviado,
             revisada: false
           })

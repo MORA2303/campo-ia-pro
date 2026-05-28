@@ -253,12 +253,12 @@ REGLAS:
   };
 
   const llamarClaude = async (userMessage: string, conversationHistory: Message[]) => {
-    // 1. Obtener la API key de las variables de entorno
-    const apiKey = import.meta.env.VITE_CLAUDE_API_KEY;
+    // 1. Obtener la URL del webhook de n8n desde las variables de entorno
+    const n8nWebhookUrl = import.meta.env.VITE_N8N_CHAT_WEBHOOK_URL;
 
-    // Si no hay API key configurada, utilizamos el simulador local premium
-    if (!apiKey || apiKey.startsWith('sk-ant-xxxxx')) {
-      console.log('Utilizando motor de IA local debido a falta de API Key o llave mock.');
+    // Si no está configurada la URL, usamos el simulador local de contingencia
+    if (!n8nWebhookUrl) {
+      console.log('Utilizando motor de IA local debido a falta de webhook de n8n.');
       return new Promise<string>((resolve) => {
         setTimeout(() => {
           resolve(generarRespuestaLocal(userMessage));
@@ -266,39 +266,58 @@ REGLAS:
       });
     }
 
-    // 2. Si la clave está presente, llamamos de forma directa (con advertencia de CORS si aplica)
     try {
-      const response = await fetch('https://api.anthropic.com/v1/messages', {
+      console.log('🔌 Conectando al cerebro centralizado n8n:', n8nWebhookUrl);
+      const response = await fetch(n8nWebhookUrl, {
         method: 'POST',
         headers: {
-          'x-api-key': apiKey,
-          'anthropic-version': '2023-06-01',
-          'content-type': 'application/json',
-          'dangerously-allow-api-key-in-browser': 'true' // Para bypass en desarrollo si el SDK lo soporta
+          'Content-Type': 'application/json'
         },
         body: JSON.stringify({
-          model: 'claude-3-5-sonnet-20241022',
-          max_tokens: 600,
-          system: construirSystemPrompt(),
-          messages: [
-            ...conversationHistory.map(m => ({
-              role: m.role,
-              content: m.content
-            })),
-            { role: 'user', content: userMessage }
-          ]
+          message: userMessage,
+          user: {
+            nombre: currentUser?.nombre || 'Usuario',
+            role: role || 'productor'
+          },
+          context: {
+            alertas_activas: alertasActivas,
+            estado_ndvi_lotes: estadoNdviLotes,
+            system_prompt: construirSystemPrompt()
+          },
+          history: conversationHistory.map(m => ({
+            role: m.role,
+            content: m.content
+          }))
         })
       });
 
       if (!response.ok) {
-        throw new Error(`Error en API de Claude: ${response.statusText}`);
+        throw new Error(`n8n respondió con error: ${response.statusText}`);
       }
 
       const data = await response.json();
-      return data.content[0].text;
+      console.log('📥 Respuesta recibida de n8n:', data);
+
+      let responseText = '';
+      if (typeof data === 'string') {
+        responseText = data;
+      } else if (data && typeof data === 'object') {
+        const target = Array.isArray(data) ? data[0] : data;
+        responseText = target.output || target.response || target.text || target.message || target.reply || target.texto_ia || target.texto_productor || target.texto_asesor || (target.data && target.data.text) || '';
+      }
+
+      if (!responseText) {
+        throw new Error('Formato de respuesta de n8n desconocido o vacío');
+      }
+
+      return responseText;
     } catch (err) {
-      console.warn('Llamada directa fallida (posible error de CORS). Utilizando motor de IA local de respaldo.');
-      return generarRespuestaLocal(userMessage);
+      console.warn('Conexión con n8n fallida o sin respuesta válida. Usando motor agronómico local de respaldo.', err);
+      return new Promise<string>((resolve) => {
+        setTimeout(() => {
+          resolve(generarRespuestaLocal(userMessage));
+        }, 800);
+      });
     }
   };
 
