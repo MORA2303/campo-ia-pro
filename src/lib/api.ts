@@ -122,3 +122,60 @@ export async function getAlertasByLote(loteId: string) {
   return all.filter(a => a.loteId === loteId);
 }
 
+// ── SUPABASE RPC BINDINGS FOR CAMPO IA AGENT ──
+
+export async function getAlertasActivasUsuario() {
+  const { data, error } = await supabase.rpc('alertas_activas_usuario');
+  if (error) {
+    console.error('Error en rpc alertas_activas_usuario:', error);
+    throw error;
+  }
+  return data || [];
+}
+
+export async function getAlertasActivasAsesor() {
+  const { data, error } = await supabase.rpc('alertas_activas_asesor');
+  if (error) {
+    console.error('Error en rpc alertas_activas_asesor:', error);
+    throw error;
+  }
+  return data || [];
+}
+
+export async function getEstadoNdviLotes() {
+  const { data, error } = await supabase.rpc('estado_ndvi_lotes');
+  if (error) {
+    console.error('Error en rpc estado_ndvi_lotes:', error);
+    throw error;
+  }
+  return data || [];
+}
+
+export async function getClimaLote(loteId: string) {
+  const { data, error } = await supabase.rpc('clima_lote', { lote_id: loteId });
+  if (error) {
+    console.error('Error en rpc clima_lote:', error);
+    throw error;
+  }
+  return data && data.length > 0 ? data[0] : null;
+}
+
+export async function getHistorialAlertas() {
+  const { data, error } = await supabase.rpc('historial_alertas');
+  if (error) {
+    console.error('Error en rpc historial_alertas:', error);
+    throw error;
+  }
+  return data || [];
+}
+
+export async function marcarAlertaRevisada(alertaId: string) {
+  const { data, error } = await supabase.rpc('marcar_alerta_revisada', { alerta_id: alertaId });
+  if (error) {
+    console.error('Error en rpc marcar_alerta_revisada:', error);
+    throw error;
+  }
+  return data;
+}
+
+
