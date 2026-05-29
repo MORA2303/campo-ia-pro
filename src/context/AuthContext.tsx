@@ -45,35 +45,62 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [registeredUsers, setRegisteredUsers] = useState<User[]>([]);
   const [loginHistory, setLoginHistory] = useState<LoginLog[]>([]);
 
-  // Inicializar base de datos de usuarios y accesos desde localStorage
+  // Inicializar base de datos de usuarios y accesos desde localStorage con auto-recuperación defensiva
   useEffect(() => {
-    // 1. Cargar usuarios
-    const storedUsers = localStorage.getItem("campo_users");
-    if (!storedUsers) {
+    try {
+      // 1. Cargar usuarios
+      const storedUsers = localStorage.getItem("campo_users");
+      const storedCreds = localStorage.getItem("campo_creds");
+
+      if (!storedUsers || storedUsers === "undefined" || storedUsers === "null" || !storedCreds) {
+        localStorage.setItem("campo_users", JSON.stringify(SEED_USERS));
+        setRegisteredUsers(SEED_USERS);
+        localStorage.setItem("campo_creds", JSON.stringify({
+          "juan@ejemplo.com": "juan123",
+          "martin.agro@ejemplo.com": "martin123",
+          "admin@camporemoto.com": "admin123"
+        }));
+        console.log("🌱 Base de datos de usuarios restablecida con credenciales seed.");
+      } else {
+        const parsed = JSON.parse(storedUsers);
+        if (!Array.isArray(parsed) || parsed.length === 0) {
+          throw new Error("Estructura de usuarios corrupta o vacía.");
+        }
+        setRegisteredUsers(parsed);
+      }
+    } catch (e) {
+      console.warn("⚠️ Restaurando base de usuarios en localStorage por posible corrupción:", e);
       localStorage.setItem("campo_users", JSON.stringify(SEED_USERS));
       setRegisteredUsers(SEED_USERS);
-      // Guardar también contraseñas mockeadas
       localStorage.setItem("campo_creds", JSON.stringify({
         "juan@ejemplo.com": "juan123",
         "martin.agro@ejemplo.com": "martin123",
         "admin@camporemoto.com": "admin123"
       }));
-    } else {
-      setRegisteredUsers(JSON.parse(storedUsers));
     }
 
-    // 2. Cargar historial
-    const storedHistory = localStorage.getItem("campo_login_history");
-    if (storedHistory) {
-      setLoginHistory(JSON.parse(storedHistory));
+    try {
+      // 2. Cargar historial
+      const storedHistory = localStorage.getItem("campo_login_history");
+      if (storedHistory && storedHistory !== "undefined" && storedHistory !== "null") {
+        setLoginHistory(JSON.parse(storedHistory));
+      }
+    } catch (e) {
+      console.warn("⚠️ Limpiando historial de accesos corrupto:", e);
+      localStorage.removeItem("campo_login_history");
     }
 
-    // 3. Cargar sesión activa si existe
-    const activeSession = localStorage.getItem("campo_session");
-    if (activeSession) {
-      const parsedUser = JSON.parse(activeSession) as User;
-      setUser(parsedUser);
-      setRoleState(parsedUser.role);
+    try {
+      // 3. Cargar sesión activa si existe
+      const activeSession = localStorage.getItem("campo_session");
+      if (activeSession && activeSession !== "undefined" && activeSession !== "null") {
+        const parsedUser = JSON.parse(activeSession) as User;
+        setUser(parsedUser);
+        setRoleState(parsedUser.role);
+      }
+    } catch (e) {
+      console.warn("⚠️ Limpiando sesión activa corrupta:", e);
+      localStorage.removeItem("campo_session");
     }
   }, []);
 
