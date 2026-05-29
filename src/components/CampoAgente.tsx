@@ -253,8 +253,8 @@ REGLAS:
   };
 
   const llamarClaude = async (userMessage: string, conversationHistory: Message[]) => {
-    // 1. Obtener la URL del webhook de n8n desde las variables de entorno
-    const n8nWebhookUrl = import.meta.env.VITE_N8N_CHAT_WEBHOOK_URL;
+    // 1. Obtener la URL del webhook de n8n desde las variables de entorno o usar la URL de la nube de n8n por defecto
+    const n8nWebhookUrl = import.meta.env.VITE_N8N_CHAT_WEBHOOK_URL || 'https://moraalemaxi.app.n8n.cloud/webhook-test/CampoRemoto';
 
     // Si no está configurada la URL, usamos el simulador local de contingencia
     if (!n8nWebhookUrl) {
